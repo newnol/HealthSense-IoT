@@ -21,6 +21,13 @@ export default function Spo2Chart({ records, rangeHours }) {
   const cutoffMs = nowMs - rangeHours * 3600 * 1000
   const filtered = (records || []).filter((r) => toMs(r.ts) >= cutoffMs)
 
+  // Tính toán các giá trị thống kê SpO2
+  const spo2Values = filtered.map((r) => r.spo2).filter((v) => typeof v === 'number' && !isNaN(v))
+  const minSpo2 = spo2Values.length ? Math.min(...spo2Values) : '-'
+  const maxSpo2 = spo2Values.length ? Math.max(...spo2Values) : '-'
+  const avgSpo2 = spo2Values.length ? spo2Values.reduce((a, b) => a + b, 0) / spo2Values.length : '-'
+  const lastSpo2 = spo2Values.length ? spo2Values[spo2Values.length - 1] : '-'
+
   const labels = filtered.map((r) => new Date(toMs(r.ts)))
 
   const chartData = {
@@ -84,7 +91,8 @@ export default function Spo2Chart({ records, rangeHours }) {
     <div className="chart-container">
       <div className="chart-header">
         <h3 className="chart-title">🫁 SpO₂ (%)</h3>
-        <div className="chart-meta">
+        <div className="chart-meta">\
+          
           Min: {minSpo2}{minSpo2 !== '-' ? ' %' : ''} / Max: {maxSpo2}{maxSpo2 !== '-' ? ' %' : ''} / Avg: {avgSpo2 !== '-' ? avgSpo2.toFixed(1) + ' %' : '-'} / Last: {lastSpo2}{lastSpo2 !== '-' ? ' %' : ''}
         </div>
       </div>
