@@ -30,7 +30,7 @@ def test_records_post_and_get(client, fake_store):  # noqa: ANN001
     }
 
     # Post a record (device_id provided by dependency override -> dev1)
-    payload = {"ts": 1000, "value": 42}
+    payload = {"spo2": 98, "heart_rate": 70}
     res = client.post("/api/records/", json=payload)
     assert res.status_code == 200
     key = res.json()["key"]
@@ -49,6 +49,7 @@ def test_records_post_and_get(client, fake_store):  # noqa: ANN001
 
 def test_records_register_device(client, fake_store):  # noqa: ANN001
     _reset_store(fake_store)
+    fake_store["devices"]["dev2"] = {"secret": "sec2"}
     res = client.post(
         "/api/records/device/register",
         json={"device_id": "dev2", "device_secret": "sec2"},
