@@ -102,6 +102,14 @@ class FakeDBRef:
     def delete(self) -> None:
         _delete_path(self._store, self._path)
 
+    def update(self, value: Dict[str, Any]) -> None:
+        for k, v in value.items():
+            if self._path == "/":
+                path = f"/{k}".rstrip("/")
+            else:
+                path = f"{self._path}/{k}".rstrip("/")
+            _assign_path(self._store, path, v)
+
     def push(self, value: Dict[str, Any]) -> FakePushResult:
         base = _lookup_path(self._store, self._path)
         if base is None or not isinstance(base, dict):
@@ -245,6 +253,12 @@ def _build_fake_firebase_module() -> types.ModuleType:
             pass
 
     mod.auth = _AuthNS()
+
+    class _ExceptionsNS:  # minimal exceptions namespace
+        class InvalidArgumentError(Exception):
+            pass
+
+    mod.exceptions = _ExceptionsNS
 
     return mod
 
