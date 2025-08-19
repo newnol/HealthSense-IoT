@@ -19,7 +19,7 @@ def firebase_email_password_login(email: str, password: str) -> str:
     try:
         resp = requests.post(url, json=payload, timeout=10)
     except requests.RequestException as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+        raise HTTPException(status_code=400, detail="Authentication service unavailable") from e
     if resp.status_code != 200:
         try:
             message = resp.json().get("error", {}).get("message", "Invalid credentials")
