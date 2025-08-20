@@ -43,7 +43,7 @@ export default function Landing() {
       <header className="header">
         <div className="container">
           <AnimatedElement animation="fadeInLeft" className="logo">
-            <h2>💓 HealthMonitor</h2>
+            <h2>💓 HealthSense</h2>
           </AnimatedElement>
           <AnimatedElement animation="fadeInRight" className="nav">
             <button 
@@ -151,17 +151,17 @@ export default function Landing() {
         <div className="container">
           <div className="footer-content">
             <div className="footer-section">
-              <h3>💓 HealthMonitor</h3>
+              <h3>💓 HealthSense</h3>
               <p>Hệ thống giám sát sức khỏe thông minh với công nghệ AI</p>
             </div>
             <div className="footer-section">
               <h4>Liên hệ</h4>
-              <p>Email: support@healthmonitor.com</p>
+              <p>Email: support@HealthSense.com</p>
               <p>Phone: +84 123 456 789</p>
             </div>
           </div>
           <div className="footer-bottom">
-            <p>&copy; 2025 HealthMonitor. All rights reserved.</p>
+            <p>&copy; 2025 HealthSense. All rights reserved.</p>
           </div>
         </div>
       </footer>
