@@ -21,6 +21,8 @@ from .auth import router as auth_router
 from .admin import router as admin_router
 from .login import router as login_router
 from .ai import router as ai_router
+from .profile import router as profile_router
+
 
 # Load env from project root `.env.local` (best-effort) for local dev
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -85,5 +87,6 @@ app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(login_router)
 app.include_router(ai_router)
+app.include_router(profile_router)
 
 # Note: On Vercel Python runtime, export ASGI app as `app` (no Mangum wrapper needed)

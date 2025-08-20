@@ -92,6 +92,9 @@ async def delete_user(user_id: str, admin = Depends(verify_admin)):
             for record_id in user_records.keys():
                 db.reference(f"/records/{record_id}").delete()
         
+        # Clean up user's profile
+        db.reference(f"/user_profiles/{user_id}").delete()
+        
         return {"status": "ok", "message": "User and associated data deleted successfully"}
     except Exception as e:
         raise HTTPException(500, f"Failed to delete user: {str(e)}")
@@ -163,6 +166,25 @@ async def delete_device(device_id: str, admin = Depends(verify_admin)):
         return {"status": "ok", "message": "Device deleted successfully"}
     except Exception as e:
         raise HTTPException(500, f"Failed to delete device: {str(e)}")
+
+@router.get("/users/{user_id}/profile")
+async def get_user_profile(user_id: str, admin = Depends(verify_admin)):
+    """Get user profile information"""
+    try:
+        # Get user profile
+        profile_data = db.reference(f"/user_profiles/{user_id}").get()
+        
+        if not profile_data:
+            raise HTTPException(404, "User profile not found")
+        
+        return {
+            "status": "success",
+            "profile": profile_data
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Failed to fetch user profile: {str(e)}")
 
 @router.get("/users/{user_id}/devices")
 async def get_user_devices(user_id: str, admin = Depends(verify_admin)):

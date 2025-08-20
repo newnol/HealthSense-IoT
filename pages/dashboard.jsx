@@ -90,6 +90,12 @@ export default function Dashboard() {
           <AnimatedElement animation="fadeInRight" className="user-info">
             <span>Xin chào, {user.email}</span>
             <button 
+              onClick={() => router.push('/profile')}
+              className="btn-profile"
+            >
+              Hồ sơ
+            </button>
+            <button 
               onClick={() => router.push('/device-setup')}
               className="btn-setup"
             >
@@ -205,13 +211,22 @@ export default function Dashboard() {
           color: #666;
         }
 
-        .btn-logout, .btn-setup, .btn-admin {
+        .btn-logout, .btn-setup, .btn-admin, .btn-profile {
           border: none;
           padding: 0.5rem 1rem;
           border-radius: 6px;
           cursor: pointer;
           transition: background 0.3s;
           font-weight: 500;
+        }
+
+        .btn-profile {
+          background: #17a2b8;
+          color: white;
+        }
+
+        .btn-profile:hover {
+          background: #138496;
         }
 
         .btn-logout {
