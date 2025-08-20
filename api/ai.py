@@ -90,6 +90,15 @@ def _load_session_messages(uid: str, session_id: str, limit: int = 100) -> List[
     return [v for _, v in items][-limit:]
 
 
+def _fetch_user_profile(user_id: str) -> Optional[Dict[str, Any]]:
+    """Fetch user profile if present, return a sanitized dict."""
+    data = db.reference(f"/user_profiles/{user_id}").get()
+    if not isinstance(data, dict):
+        return None
+    allowed_keys = {"year_of_birth", "age", "sex", "height", "weight", "timezone", "updated_at"}
+    return {k: v for k, v in data.items() if k in allowed_keys}
+
+
 def _update_session_memory_summary(uid: str, session_id: str, model_obj) -> Optional[str]:
     """Create or refresh a concise memory summary for the session and store it.
 
@@ -100,11 +109,14 @@ def _update_session_memory_summary(uid: str, session_id: str, model_obj) -> Opti
         if not messages:
             return None
         convo_text = "\n".join([f"{m.get('role')}: {m.get('content')}" for m in messages])
+        profile = _fetch_user_profile(uid)
         prompt = (
-            "Tóm tắt ngắn gọn nội dung quan trọng của cuộc trò chuyện giữa người dùng và trợ lý về sức khỏe.\n"
-            "- Trích xuất các triệu chứng/chỉ số đáng chú ý (nếu có).\n"
-            "- Nêu khuyến nghị ngắn gọn ở dạng gạch đầu dòng.\n"
+            "Tóm tắt ngắn gọn nội dung quan trọng của cuộc trò chuyện về sức khỏe.\n"
+            "- Nếu có, xét đến hồ sơ (tuổi, giới, chiều cao, cân nặng) để bối cảnh hóa.\n"
+            "- Trích xuất các triệu chứng/chỉ số đáng chú ý.\n"
+            "- Đề xuất ngắn gọn dạng gạch đầu dòng.\n"
             "- Giới hạn 120-180 từ.\n\n"
+            f"Hồ sơ người dùng (nếu có):\n{profile or {}}\n\n"
             f"Cuộc trò chuyện:\n{convo_text}\n\nTóm tắt:"
         )
         response = model_obj.generate_content(prompt)
@@ -154,9 +166,10 @@ async def chat(req: Request, user = Depends(verify_firebase_token)):
     except Exception as e:
         raise HTTPException(500, f"AI configuration error: {e}")
 
-    # Prepare context: recent health records
+    # Prepare context: recent health records and user profile
     user_id = user.get("uid")
     recent = _fetch_recent_user_records(user_id=user_id, limit=25)
+    profile = _fetch_user_profile(user_id)
 
     # Compose prompt
     history_text = "\n".join(
@@ -164,8 +177,11 @@ async def chat(req: Request, user = Depends(verify_firebase_token)):
     )
     prompt = (
         "Bạn là trợ lý sức khỏe thân thiện, trả lời bằng tiếng Việt, súc tích, dễ hiểu.\n"
-        "Luôn nhắc đây là thông tin tham khảo, không thay thế tư vấn y khoa.\n\n"
-        "Dữ liệu gần đây (JSON):\n"
+        "Luôn nhắc đây là thông tin tham khảo, không thay thế tư vấn y khoa.\n"
+        "Nếu có, hãy cá nhân hóa khuyến nghị dựa trên tuổi, giới, chiều cao, cân nặng.\n\n"
+        "Hồ sơ người dùng (JSON):\n"
+        f"{profile or {}}\n\n"
+        "Dữ liệu đo gần đây (JSON):\n"
         f"{recent}\n\n"
         "Cuộc hội thoại trước đó (nếu có):\n"
         f"{history_text}\n\n"
