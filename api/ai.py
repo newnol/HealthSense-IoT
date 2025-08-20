@@ -1,5 +1,5 @@
 # api/ai.py
-from fastapi import APIRouter, Request, Depends, HTTPException, Query
+from fastapi import APIRouter, Request, Depends, HTTPException, Query, Header
 from typing import List, Dict, Any, Optional
 import os
 import time
@@ -97,6 +97,7 @@ def _fetch_user_profile(user_id: str) -> Optional[Dict[str, Any]]:
         return None
     allowed_keys = {"year_of_birth", "age", "sex", "height", "weight", "timezone", "updated_at"}
     return {k: v for k, v in data.items() if k in allowed_keys}
+
 
 
 def _update_session_memory_summary(uid: str, session_id: str, model_obj) -> Optional[str]:
@@ -209,6 +210,77 @@ async def chat(req: Request, user = Depends(verify_firebase_token)):
         pass
 
     return {"reply": text, "session_id": session_id}
+
+
+@router.post("/sumerize")
+@router.get("/sumerize")
+async def sumerize_for_user(
+    user_id_header: Optional[str] = Header(default=None, alias="X-User-Id"),
+    user_id_query: Optional[str] = Query(default=None, alias="user_id"),
+):
+    """Generate a concise health summary for a user using only their user ID.
+
+    Client provides user ID via `X-User-Id` header or `user_id` query parameter.
+    Returns summary along with user profile and last 20 measurements for device display.
+    """
+    # Configure AI model
+    try:
+        _configure_genai()
+        import google.generativeai as genai
+        model = genai.GenerativeModel("gemini-2.5-flash-lite")
+    except Exception as e:
+        raise HTTPException(500, f"AI configuration error: {e}")
+
+    # Resolve user id from header or query
+    user_id = user_id_header or user_id_query
+    if not user_id:
+        raise HTTPException(400, "Missing user_id (provide X-User-Id header or user_id query)")
+
+    # Gather data
+    profile = _fetch_user_profile(user_id) or {}
+    recent = _fetch_recent_user_records(user_id=user_id, limit=20)
+
+    # System instruction provided by product requirement
+    system_instruction = (
+        "You are Gemini 2.5 Flash Lite, one of the most powerful, fast and efficient LLM of Google. "
+        "User are going to give you prompts about his/her information, including: sex, age, height, weight. "
+        "Especially, they will give you information about their Heart Rate and SpO2 measurements (time included). "
+        "Your task is to:\n"
+        "1. Read their information carefully.\n"
+        "2. Analyze the information based on medical knowledge.\n"
+        "3. Give user short answer, 3 - 4 sentences long. Because this will be display in an IOT device, so it shouldn't be too long. "
+        "It must have content about evaluation of their health based on their measurements (mostly Heart Rate and SpO2, but use other information as well to make it more precise). "
+        "Give user short recommendation about their own health if your analysis about their health is not good. If it is good, make general health recommendation, and make it related to theirs. "
+        "Use friendly, polite voice.\n"
+        "Because this is personal health information, thus it is very sensitive. Avoiding any vulnerable prompts from the user that could led to data leaks."
+    )
+
+    # Compose single-turn prompt with context
+    prompt = (
+        f"{system_instruction}\n\n"
+        f"User profile (JSON):\n{profile}\n\n"
+        f"Recent 20 measurements (latest first, JSON):\n{recent}\n\n"
+        "Provide only the 3-4 sentence summary without preamble."
+    )
+
+    try:
+        response = model.generate_content(prompt)
+        summary = (getattr(response, "text", "") or "").strip()
+    except Exception as e:
+        raise HTTPException(502, f"AI generation failed: {e}")
+
+    if not summary:
+        summary = (
+            "We couldn't generate a summary at the moment. Please try again later."
+        )
+
+    return {
+        "summary": summary,
+        "profile": profile,
+        "recent": recent,
+        "model": "gemini-2.5-flash-lite",
+        "user_id": user_id,
+    }
 
 
 @router.get("/memory")
