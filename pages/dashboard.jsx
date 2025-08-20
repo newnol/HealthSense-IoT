@@ -95,6 +95,12 @@ export default function Dashboard() {
             >
               Thiết bị
             </button>
+            <button 
+              onClick={() => router.push('/ai')}
+              className="btn-admin"
+            >
+              AI Chat
+            </button>
             {isAdmin && (
               <button 
                 onClick={() => router.push('/admin')}
