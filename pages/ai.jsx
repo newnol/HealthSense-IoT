@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useRouter } from 'next/router'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 export default function AIChatPage() {
   const { user, loading } = useAuth()
@@ -11,6 +13,7 @@ export default function AIChatPage() {
   const [input, setInput] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const listRef = useRef(null)
+  const [showSuggest, setShowSuggest] = useState(false)
 
   useEffect(() => {
     if (!loading && !user) {
@@ -150,7 +153,13 @@ export default function AIChatPage() {
               )}
               {messages.map((m, idx) => (
                 <div key={idx} className={`message ${m.role}`}>
-                  <div className="bubble">{m.content}</div>
+                  <div className="bubble">
+                    {m.role === 'assistant' ? (
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                    ) : (
+                      m.content
+                    )}
+                  </div>
                 </div>
               ))}
               {submitting && (
@@ -167,6 +176,9 @@ export default function AIChatPage() {
                 rows={2}
               />
               <button className="btn-send" disabled={!canSend} onClick={sendMessage}>Gửi</button>
+            </div>
+            <div className="suggest">
+              <button onClick={() => setShowSuggest(true)} className="btn-suggest">Gợi ý câu hỏi</button>
             </div>
           </div>
         </div>
@@ -207,7 +219,35 @@ export default function AIChatPage() {
         textarea { resize: none; border: 1px solid #dee2e6; border-radius: 8px; padding: 0.625rem 0.75rem; font-size: 0.95rem; }
         .btn-send { background: #10b981; color: white; border: 0; padding: 0 1rem; border-radius: 8px; cursor: pointer; }
         .btn-send:disabled { background: #a7f3d0; cursor: not-allowed; }
+        .bubble :global(h1), .bubble :global(h2), .bubble :global(h3) { margin: 0.2rem 0; }
+        .bubble :global(ul) { margin: 0.25rem 0 0.25rem 1rem; }
+        .bubble :global(code) { background: #f3f4f6; padding: 0.1rem 0.25rem; border-radius: 4px; }
+        .suggest { padding: 0 0.75rem 0.75rem; }
+        .btn-suggest { background: #f3f4f6; border: 1px solid #d1d5db; border-radius: 8px; padding: 0.35rem 0.6rem; cursor: pointer; }
+        .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: center; z-index: 50; }
+        .modal { width: 520px; background: white; border-radius: 12px; border: 1px solid #e5e7eb; overflow: hidden; }
+        .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; border-bottom: 1px solid #e5e7eb; font-weight: 600; }
+        .btn-close { background: transparent; border: none; font-size: 1.25rem; cursor: pointer; }
+        .modal-body { display: grid; gap: 0.5rem; padding: 0.75rem; }
+        .q { text-align: left; border: 1px solid #d1d5db; background: #f9fafb; padding: 0.6rem 0.75rem; border-radius: 8px; cursor: pointer; }
+        .q:hover { background: #f3f4f6; }
       `}</style>
+
+      {showSuggest && (
+        <div className="modal-backdrop" onClick={() => setShowSuggest(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>Gợi ý câu hỏi</div>
+              <button className="btn-close" onClick={() => setShowSuggest(false)}>×</button>
+            </div>
+            <div className="modal-body">
+              <button className="q" onClick={() => { setInput('Nhịp tim và SpO₂ gần đây của tôi có bình thường không?'); setShowSuggest(false) }}>Nhịp tim và SpO₂ gần đây của tôi có bình thường không?</button>
+              <button className="q" onClick={() => { setInput('Tôi hay chóng mặt, với chỉ số hiện tại thì nên làm gì?'); setShowSuggest(false) }}>Tôi hay chóng mặt, với chỉ số hiện tại thì nên làm gì?</button>
+              <button className="q" onClick={() => { setInput('Bạn tóm tắt sức khỏe gần đây của tôi trong 3 ý chính.'); setShowSuggest(false) }}>Bạn tóm tắt sức khỏe gần đây của tôi trong 3 ý chính.</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
