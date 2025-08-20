@@ -227,3 +227,50 @@ async def get_memory(
     return latest
 
 
+@router.get("/sessions")
+async def list_sessions(user = Depends(verify_firebase_token)):
+    """List AI chat sessions for the current user, sorted by last_updated desc.
+
+    Returns: [{ id, last_updated, last_user_message, summary? }]
+    """
+    uid = user.get("uid")
+    sessions_ref = db.reference(f"/ai_chats/{uid}")
+    data = sessions_ref.get() or {}
+    if not isinstance(data, dict):
+        return []
+
+    memory_map = db.reference(f"/ai_memory/{uid}").get() or {}
+    results = []
+    for sid, node in data.items():
+        meta = node.get("meta") if isinstance(node, dict) else None
+        last_updated = 0
+        last_user_message = None
+        if isinstance(meta, dict):
+            last_updated = int(meta.get("last_updated") or 0)
+            last_user_message = meta.get("last_user_message")
+        mem = memory_map.get(sid) if isinstance(memory_map, dict) else None
+        summary = mem.get("summary") if isinstance(mem, dict) else None
+        results.append({
+            "id": sid,
+            "last_updated": last_updated,
+            "last_user_message": last_user_message,
+            "summary": summary,
+        })
+
+    results.sort(key=lambda x: x.get("last_updated", 0), reverse=True)
+    return results
+
+
+@router.get("/messages")
+async def get_messages(
+    session_id: str = Query(..., description="Session ID to load messages for"),
+    limit: int = Query(100, ge=1, le=500),
+    user = Depends(verify_firebase_token),
+):
+    """Return messages for a session in chronological order."""
+    uid = user.get("uid")
+    if not session_id:
+        raise HTTPException(400, "Missing session_id")
+    messages = _load_session_messages(uid, session_id, limit=limit)
+    return messages
+
