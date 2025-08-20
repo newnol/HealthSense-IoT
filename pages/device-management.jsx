@@ -7,6 +7,7 @@ import axios from 'axios'
 export default function DeviceManagement() {
   const { user, loading } = useAuth()
   const router = useRouter()
+  const [activeTab, setActiveTab] = useState('register') // 'register' or 'manage'
   const [devices, setDevices] = useState([])
   const [selectedDevice, setSelectedDevice] = useState(null)
   const [deviceUsers, setDeviceUsers] = useState([])
@@ -14,7 +15,11 @@ export default function DeviceManagement() {
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   
-  // Form states
+  // Register device states
+  const [deviceId, setDeviceId] = useState('')
+  const [registerDeviceSecret, setRegisterDeviceSecret] = useState('')
+  
+  // Manage device states
   const [newUserEmail, setNewUserEmail] = useState('')
   const [deviceSecret, setDeviceSecret] = useState('')
   const [showAddUserForm, setShowAddUserForm] = useState(false)
@@ -28,14 +33,60 @@ export default function DeviceManagement() {
   if (loading) {
     return (
       <div className="loading-container">
+        <div className="loading-spinner">⏳</div>
         <div>Đang tải...</div>
       </div>
     )
   }
 
   useEffect(() => {
-    loadUserDevices()
-  }, [user])
+    if (activeTab === 'manage') {
+      loadUserDevices()
+    }
+  }, [user, activeTab])
+
+  const handleRegisterDevice = async (e) => {
+    e.preventDefault()
+    
+    if (!deviceId.trim() || !registerDeviceSecret.trim()) {
+      setError('Vui lòng nhập đầy đủ thông tin thiết bị')
+      return
+    }
+
+    setIsLoading(true)
+    setError('')
+    setMessage('')
+
+    try {
+      const token = await user.getIdToken()
+      
+      const response = await axios.post('/api/records/device/register', {
+        device_id: deviceId.trim(),
+        device_secret: registerDeviceSecret.trim()
+      }, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+
+      setMessage(response.data.message)
+      setDeviceId('')
+      setRegisterDeviceSecret('')
+      
+      // Switch to manage tab after successful registration
+      setTimeout(() => {
+        setActiveTab('manage')
+        loadUserDevices()
+      }, 2000)
+      
+    } catch (error) {
+      console.error('Registration error:', error)
+      if (error.response?.data?.error) {
+        setError(error.response.data.error)
+      } else {
+        setError('Có lỗi xảy ra khi đăng ký thiết bị')
+      }
+    }
+    setIsLoading(false)
+  }
 
   const loadUserDevices = async () => {
     if (!user) return
@@ -98,18 +149,20 @@ export default function DeviceManagement() {
       setShowAddUserForm(false)
       
       // Reload device users
-      await loadDeviceUsers(selectedDevice)
-      
+      loadDeviceUsers(selectedDevice)
     } catch (error) {
-      console.error('Add user error:', error)
-      setError(error.response?.data?.detail || 'Không thể thêm người dùng')
+      console.error('Error adding user:', error)
+      if (error.response?.data?.error) {
+        setError(error.response.data.error)
+      } else {
+        setError('Có lỗi xảy ra khi thêm người dùng')
+      }
     }
-    
     setIsLoading(false)
   }
 
-  const removeUserFromDevice = async (userId) => {
-    if (!selectedDevice || !confirm('Bạn có chắc muốn xóa người dùng này khỏi thiết bị?')) {
+  const removeUserFromDevice = async (userEmail) => {
+    if (!confirm(`Bạn có chắc muốn xóa người dùng ${userEmail} khỏi thiết bị?`)) {
       return
     }
 
@@ -119,459 +172,874 @@ export default function DeviceManagement() {
 
     try {
       const token = await user.getIdToken()
-      const response = await axios.delete(`/api/records/device/${selectedDevice}/remove-user/${userId}`, {
+      const response = await axios.delete(`/api/records/device/${selectedDevice}/remove-user`, {
+        data: { user_email: userEmail },
         headers: { 'Authorization': `Bearer ${token}` }
       })
 
       setMessage(response.data.message)
-      
-      // Reload device users
-      await loadDeviceUsers(selectedDevice)
-      
+      loadDeviceUsers(selectedDevice)
     } catch (error) {
-      console.error('Remove user error:', error)
-      setError(error.response?.data?.detail || 'Không thể xóa người dùng')
+      console.error('Error removing user:', error)
+      if (error.response?.data?.error) {
+        setError(error.response.data.error)
+      } else {
+        setError('Có lỗi xảy ra khi xóa người dùng')
+      }
     }
-    
     setIsLoading(false)
   }
 
   return (
     <div className="device-management">
-      <style jsx>{`
-        .device-management {
-          max-width: 1200px;
-          margin: 0 auto;
-          padding: 2rem;
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        }
-        
-        .header {
-          text-align: center;
-          margin-bottom: 3rem;
-        }
-        
-        .header h1 {
-          color: #2c3e50;
-          margin-bottom: 0.5rem;
-        }
-        
-        .header p {
-          color: #7f8c8d;
-        }
-        
-        .content {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 2rem;
-          align-items: start;
-        }
-        
-        .devices-section, .users-section {
-          background: white;
-          padding: 2rem;
-          border-radius: 12px;
-          box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        
-        .section-title {
-          color: #2c3e50;
-          margin-bottom: 1rem;
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-        }
-        
-        .device-list, .user-list {
-          space-y: 1rem;
-        }
-        
-        .device-item, .user-item {
-          padding: 1rem;
-          border: 2px solid #ecf0f1;
-          border-radius: 8px;
-          margin-bottom: 1rem;
-          cursor: pointer;
-          transition: all 0.2s;
-        }
-        
-        .device-item:hover {
-          border-color: #3498db;
-          background-color: #f8f9fa;
-        }
-        
-        .device-item.selected {
-          border-color: #3498db;
-          background-color: #e3f2fd;
-        }
-        
-        .device-info {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-        }
-        
-        .device-id {
-          font-weight: 600;
-          color: #2c3e50;
-        }
-        
-        .device-meta {
-          font-size: 0.9rem;
-          color: #7f8c8d;
-          margin-top: 0.5rem;
-        }
-        
-        .user-count {
-          background: #3498db;
-          color: white;
-          padding: 0.25rem 0.5rem;
-          border-radius: 12px;
-          font-size: 0.8rem;
-        }
-        
-        .user-item {
-          cursor: default;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-        }
-        
-        .user-info {
-          flex: 1;
-        }
-        
-        .user-email {
-          font-weight: 600;
-          color: #2c3e50;
-        }
-        
-        .user-meta {
-          font-size: 0.9rem;
-          color: #7f8c8d;
-          margin-top: 0.25rem;
-        }
-        
-        .remove-btn {
-          background: #e74c3c;
-          color: white;
-          border: none;
-          padding: 0.5rem 1rem;
-          border-radius: 6px;
-          cursor: pointer;
-          font-size: 0.9rem;
-        }
-        
-        .remove-btn:hover {
-          background: #c0392b;
-        }
-        
-        .remove-btn:disabled {
-          background: #bdc3c7;
-          cursor: not-allowed;
-        }
-        
-        .add-user-section {
-          margin-top: 2rem;
-          padding-top: 2rem;
-          border-top: 1px solid #ecf0f1;
-        }
-        
-        .add-user-btn {
-          background: #27ae60;
-          color: white;
-          border: none;
-          padding: 0.75rem 1.5rem;
-          border-radius: 6px;
-          cursor: pointer;
-          width: 100%;
-          margin-bottom: 1rem;
-        }
-        
-        .add-user-btn:hover {
-          background: #229954;
-        }
-        
-        .add-user-form {
-          space-y: 1rem;
-        }
-        
-        .form-group {
-          margin-bottom: 1rem;
-        }
-        
-        .form-group label {
-          display: block;
-          margin-bottom: 0.5rem;
-          color: #2c3e50;
-          font-weight: 500;
-        }
-        
-        .form-group input {
-          width: 100%;
-          padding: 0.75rem;
-          border: 2px solid #ecf0f1;
-          border-radius: 6px;
-          font-size: 1rem;
-          box-sizing: border-box;
-        }
-        
-        .form-group input:focus {
-          outline: none;
-          border-color: #3498db;
-        }
-        
-        .form-actions {
-          display: flex;
-          gap: 1rem;
-        }
-        
-        .btn {
-          padding: 0.75rem 1.5rem;
-          border: none;
-          border-radius: 6px;
-          cursor: pointer;
-          font-size: 1rem;
-          flex: 1;
-        }
-        
-        .btn-primary {
-          background: #3498db;
-          color: white;
-        }
-        
-        .btn-primary:hover {
-          background: #2980b9;
-        }
-        
-        .btn-secondary {
-          background: #95a5a6;
-          color: white;
-        }
-        
-        .btn-secondary:hover {
-          background: #7f8c8d;
-        }
-        
-        .btn:disabled {
-          background: #bdc3c7;
-          cursor: not-allowed;
-        }
-        
-        .message {
-          padding: 1rem;
-          border-radius: 6px;
-          margin-bottom: 1rem;
-        }
-        
-        .message.success {
-          background: #d4edda;
-          color: #155724;
-          border: 1px solid #c3e6cb;
-        }
-        
-        .message.error {
-          background: #f8d7da;
-          color: #721c24;
-          border: 1px solid #f5c6cb;
-        }
-        
-        .loading-container {
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          height: 200px;
-          color: #7f8c8d;
-        }
-        
-        .empty-state {
-          text-align: center;
-          color: #7f8c8d;
-          padding: 2rem;
-        }
-        
-        .legacy-badge {
-          background: #f39c12;
-          color: white;
-          padding: 0.25rem 0.5rem;
-          border-radius: 4px;
-          font-size: 0.7rem;
-          margin-left: 0.5rem;
-        }
-        
-        @media (max-width: 768px) {
-          .content {
-            grid-template-columns: 1fr;
-          }
-          
-          .device-management {
-            padding: 1rem;
-          }
-        }
-      `}</style>
-
-      <div className="header">
-        <h1>🔗 Quản lý thiết bị chia sẻ</h1>
-        <p>Quản lý và chia sẻ thiết bị với người dùng khác</p>
-      </div>
-
-      {message && (
-        <div className="message success">
-          {message}
+      {/* Header */}
+      <header className="header">
+        <div className="container">
+          <h1>🔧 Quản lý Thiết bị</h1>
+          <button 
+            onClick={() => router.push('/dashboard')}
+            className="btn-back"
+          >
+            ← Quay lại Dashboard
+          </button>
         </div>
-      )}
+      </header>
 
-      {error && (
-        <div className="message error">
-          {error}
+      <div className="container">
+        {/* Tab Navigation */}
+        <div className="tab-navigation">
+          <button 
+            className={`tab-btn ${activeTab === 'register' ? 'active' : ''}`}
+            onClick={() => setActiveTab('register')}
+          >
+            <span className="tab-icon">📱</span>
+            <span className="tab-label">Đăng ký thiết bị mới</span>
+          </button>
+          <button 
+            className={`tab-btn ${activeTab === 'manage' ? 'active' : ''}`}
+            onClick={() => setActiveTab('manage')}
+          >
+            <span className="tab-icon">⚙️</span>
+            <span className="tab-label">Quản lý thiết bị</span>
+          </button>
         </div>
-      )}
 
-      <div className="content">
-        <div className="devices-section">
-          <h2 className="section-title">
-            📱 Thiết bị của bạn
-          </h2>
-          
-          {isLoading && !devices.length ? (
-            <div className="loading-container">
-              <div>Đang tải...</div>
-            </div>
-          ) : devices.length === 0 ? (
-            <div className="empty-state">
-              <p>Bạn chưa có thiết bị nào được đăng ký.</p>
-              <p>Hãy đến trang <a href="/device-setup">Đăng ký thiết bị</a> để thêm thiết bị mới.</p>
-            </div>
-          ) : (
-            <div className="device-list">
-              {devices.map((device) => (
-                <div
-                  key={device.device_id}
-                  className={`device-item ${selectedDevice === device.device_id ? 'selected' : ''}`}
-                  onClick={() => loadDeviceUsers(device.device_id)}
+        {/* Messages */}
+        {message && (
+          <div className="alert alert-success">
+            <span className="alert-icon">✅</span>
+            {message}
+          </div>
+        )}
+        {error && (
+          <div className="alert alert-error">
+            <span className="alert-icon">❌</span>
+            {error}
+          </div>
+        )}
+
+        {/* Register Device Tab */}
+        {activeTab === 'register' && (
+          <div className="tab-content">
+            <div className="register-section">
+              <div className="section-header">
+                <h2>📱 Đăng ký thiết bị mới</h2>
+                <p>Nhập thông tin thiết bị ESP32 để kết nối với hệ thống</p>
+              </div>
+
+              <form onSubmit={handleRegisterDevice} className="register-form">
+                <div className="form-group">
+                  <label htmlFor="deviceId">Device ID</label>
+                  <input
+                    type="text"
+                    id="deviceId"
+                    value={deviceId}
+                    onChange={(e) => setDeviceId(e.target.value)}
+                    placeholder="Nhập Device ID (ví dụ: ESP32_001)"
+                    required
+                    className="form-input"
+                  />
+                  <div className="input-help">
+                    Device ID được in trên thiết bị hoặc hiển thị trên màn hình LCD
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="registerDeviceSecret">Device Secret</label>
+                  <input
+                    type="password"
+                    id="registerDeviceSecret"
+                    value={registerDeviceSecret}
+                    onChange={(e) => setRegisterDeviceSecret(e.target.value)}
+                    placeholder="Nhập Device Secret"
+                    required
+                    className="form-input"
+                  />
+                  <div className="input-help">
+                    Device Secret là mật khẩu bảo mật của thiết bị
+                  </div>
+                </div>
+
+                <button 
+                  type="submit" 
+                  disabled={isLoading}
+                  className="btn-primary"
                 >
-                  <div className="device-info">
-                    <div>
-                      <div className="device-id">
-                        {device.device_id}
-                        {device.is_legacy && <span className="legacy-badge">Legacy</span>}
-                      </div>
-                      <div className="device-meta">
-                        Đăng ký: {new Date(device.registered_at).toLocaleDateString('vi-VN')}
-                        {device.added_by && <div>Được thêm bởi: {device.added_by}</div>}
-                      </div>
+                  {isLoading ? (
+                    <>
+                      <span className="spinner">⏳</span>
+                      Đang đăng ký...
+                    </>
+                  ) : (
+                    <>
+                      <span className="btn-icon">📱</span>
+                      Đăng ký thiết bị
+                    </>
+                  )}
+                </button>
+              </form>
+
+              <div className="info-section">
+                <h3>📋 Hướng dẫn</h3>
+                <div className="info-steps">
+                  <div className="step">
+                    <div className="step-number">1</div>
+                    <div className="step-content">
+                      <h4>Chuẩn bị thiết bị</h4>
+                      <p>Đảm bảo thiết bị ESP32 đã được kết nối WiFi và hoạt động</p>
                     </div>
-                    <div className="user-count">
-                      {device.user_count} người dùng
+                  </div>
+                  <div className="step">
+                    <div className="step-number">2</div>
+                    <div className="step-content">
+                      <h4>Lấy thông tin</h4>
+                      <p>Tìm Device ID và Secret trên thiết bị hoặc màn hình LCD</p>
+                    </div>
+                  </div>
+                  <div className="step">
+                    <div className="step-number">3</div>
+                    <div className="step-content">
+                      <h4>Đăng ký</h4>
+                      <p>Nhập thông tin vào form trên và nhấn "Đăng ký thiết bị"</p>
                     </div>
                   </div>
                 </div>
-              ))}
+              </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
-        <div className="users-section">
-          <h2 className="section-title">
-            👥 Người dùng thiết bị
-          </h2>
-          
-          {!selectedDevice ? (
-            <div className="empty-state">
-              <p>Chọn một thiết bị để xem danh sách người dùng</p>
-            </div>
-          ) : (
-            <>
-              {deviceUsers.length === 0 ? (
-                <div className="empty-state">
-                  <p>Thiết bị này chưa có người dùng nào</p>
+        {/* Manage Devices Tab */}
+        {activeTab === 'manage' && (
+          <div className="tab-content">
+            <div className="manage-section">
+              <div className="section-header">
+                <h2>⚙️ Danh sách thiết bị</h2>
+                <p>Quản lý các thiết bị đã đăng ký và người dùng có quyền truy cập</p>
+              </div>
+
+              {isLoading && (
+                <div className="loading-state">
+                  <span className="spinner">⏳</span>
+                  Đang tải...
                 </div>
-              ) : (
-                <div className="user-list">
-                  {deviceUsers.map((deviceUser) => (
-                    <div key={deviceUser.user_id} className="user-item">
-                      <div className="user-info">
-                        <div className="user-email">
-                          {deviceUser.email}
-                          {deviceUser.is_legacy && <span className="legacy-badge">Legacy</span>}
-                        </div>
-                        <div className="user-meta">
-                          Đăng ký: {new Date(deviceUser.registered_at).toLocaleDateString('vi-VN')}
-                          {deviceUser.added_by && <div>Được thêm bởi: {deviceUser.added_by}</div>}
+              )}
+
+              {!isLoading && devices.length === 0 && (
+                <div className="empty-state">
+                  <div className="empty-icon">📱</div>
+                  <h3>Chưa có thiết bị nào</h3>
+                  <p>Hãy đăng ký thiết bị đầu tiên của bạn</p>
+                  <button 
+                    onClick={() => setActiveTab('register')}
+                    className="btn-primary"
+                  >
+                    <span className="btn-icon">➕</span>
+                    Đăng ký thiết bị mới
+                  </button>
+                </div>
+              )}
+
+              {!isLoading && devices.length > 0 && (
+                <div className="devices-grid">
+                  {devices.map((device) => (
+                    <div 
+                      key={device.device_id} 
+                      className={`device-card ${selectedDevice === device.device_id ? 'selected' : ''}`}
+                      onClick={() => loadDeviceUsers(device.device_id)}
+                    >
+                      <div className="device-header">
+                        <div className="device-icon">📱</div>
+                        <div className="device-info">
+                          <h3>{device.device_id}</h3>
+                          <div className="device-meta">
+                            <span className="device-status online">🟢 Đang hoạt động</span>
+                            <span className="device-users">{device.user_count || 0} người dùng</span>
+                          </div>
                         </div>
                       </div>
-                      {deviceUser.user_id !== user.uid && (
-                        <button
-                          className="remove-btn"
-                          onClick={() => removeUserFromDevice(deviceUser.user_id)}
-                          disabled={isLoading}
-                        >
-                          Xóa
-                        </button>
-                      )}
+                      <div className="device-stats">
+                        <div className="stat">
+                          <span className="stat-label">Đăng ký lúc</span>
+                          <span className="stat-value">
+                            {new Date(device.created_at).toLocaleDateString('vi-VN')}
+                          </span>
+                        </div>
+                      </div>
                     </div>
                   ))}
                 </div>
               )}
 
-              <div className="add-user-section">
-                {!showAddUserForm ? (
-                  <button
-                    className="add-user-btn"
-                    onClick={() => setShowAddUserForm(true)}
-                  >
-                    ➕ Thêm người dùng mới
-                  </button>
-                ) : (
-                  <form className="add-user-form" onSubmit={addUserToDevice}>
-                    <div className="form-group">
-                      <label>Email người dùng:</label>
-                      <input
-                        type="email"
-                        value={newUserEmail}
-                        onChange={(e) => setNewUserEmail(e.target.value)}
-                        placeholder="example@email.com"
-                        required
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label>Mật khẩu thiết bị:</label>
-                      <input
-                        type="password"
-                        value={deviceSecret}
-                        onChange={(e) => setDeviceSecret(e.target.value)}
-                        placeholder="Nhập mật khẩu thiết bị"
-                        required
-                      />
-                    </div>
-                    <div className="form-actions">
-                      <button
-                        type="submit"
-                        className="btn btn-primary"
-                        disabled={isLoading}
-                      >
-                        {isLoading ? 'Đang thêm...' : 'Thêm người dùng'}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-secondary"
-                        onClick={() => {
-                          setShowAddUserForm(false)
-                          setNewUserEmail('')
-                          setDeviceSecret('')
-                        }}
-                        disabled={isLoading}
-                      >
-                        Hủy
-                      </button>
-                    </div>
-                  </form>
-                )}
-              </div>
-            </>
-          )}
-        </div>
+              {/* Device Users Management */}
+              {selectedDevice && (
+                <div className="device-users-section">
+                  <div className="section-header">
+                    <h3>👥 Người dùng thiết bị: {selectedDevice}</h3>
+                    <button 
+                      onClick={() => setShowAddUserForm(!showAddUserForm)}
+                      className="btn-secondary"
+                    >
+                      <span className="btn-icon">➕</span>
+                      Thêm người dùng
+                    </button>
+                  </div>
+
+                  {showAddUserForm && (
+                    <form onSubmit={addUserToDevice} className="add-user-form">
+                      <div className="form-row">
+                        <div className="form-group">
+                          <label htmlFor="newUserEmail">Email người dùng</label>
+                          <input
+                            type="email"
+                            id="newUserEmail"
+                            value={newUserEmail}
+                            onChange={(e) => setNewUserEmail(e.target.value)}
+                            placeholder="user@example.com"
+                            required
+                            className="form-input"
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label htmlFor="deviceSecret">Device Secret</label>
+                          <input
+                            type="password"
+                            id="deviceSecret"
+                            value={deviceSecret}
+                            onChange={(e) => setDeviceSecret(e.target.value)}
+                            placeholder="Mật khẩu thiết bị"
+                            required
+                            className="form-input"
+                          />
+                        </div>
+                        <div className="form-actions">
+                          <button 
+                            type="submit" 
+                            disabled={isLoading}
+                            className="btn-primary"
+                          >
+                            {isLoading ? '⏳' : '➕'} Thêm
+                          </button>
+                          <button 
+                            type="button"
+                            onClick={() => setShowAddUserForm(false)}
+                            className="btn-cancel"
+                          >
+                            Hủy
+                          </button>
+                        </div>
+                      </div>
+                    </form>
+                  )}
+
+                  <div className="users-list">
+                    {deviceUsers.map((deviceUser) => (
+                      <div key={deviceUser.user_email} className="user-card">
+                        <div className="user-info">
+                          <div className="user-avatar">
+                            {deviceUser.user_email.charAt(0).toUpperCase()}
+                          </div>
+                          <div className="user-details">
+                            <div className="user-email">{deviceUser.user_email}</div>
+                            <div className="user-meta">
+                              Thêm vào: {new Date(deviceUser.created_at).toLocaleDateString('vi-VN')}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="user-actions">
+                          <button 
+                            onClick={() => removeUserFromDevice(deviceUser.user_email)}
+                            className="btn-danger"
+                            title="Xóa người dùng"
+                          >
+                            🗑️
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
+
+      <style jsx>{`
+        .device-management {
+          min-height: 100vh;
+          background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+
+        .header {
+          background: rgba(255, 255, 255, 0.1);
+          backdrop-filter: blur(20px);
+          border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+          padding: 1.5rem 0;
+          margin-bottom: 2rem;
+        }
+
+        .header .container {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+
+        .header h1 {
+          margin: 0;
+          color: #333;
+          font-size: 1.8rem;
+        }
+
+        .btn-back {
+          background: rgba(255, 255, 255, 0.2);
+          border: 1px solid rgba(255, 255, 255, 0.3);
+          color: #333;
+          padding: 0.75rem 1.5rem;
+          border-radius: 8px;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          font-weight: 500;
+        }
+
+        .btn-back:hover {
+          background: rgba(255, 255, 255, 0.3);
+          transform: translateY(-2px);
+        }
+
+        .container {
+          max-width: 1200px;
+          margin: 0 auto;
+          padding: 0 2rem;
+        }
+
+        .loading-container {
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          align-items: center;
+          height: 100vh;
+          gap: 1rem;
+        }
+
+        .loading-spinner {
+          font-size: 2rem;
+          animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+
+        .tab-navigation {
+          display: flex;
+          gap: 0.5rem;
+          margin-bottom: 2rem;
+          background: rgba(255, 255, 255, 0.1);
+          backdrop-filter: blur(20px);
+          border: 1px solid rgba(255, 255, 255, 0.2);
+          border-radius: 12px;
+          padding: 0.5rem;
+        }
+
+        .tab-btn {
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
+          background: transparent;
+          border: none;
+          padding: 1rem 1.5rem;
+          border-radius: 8px;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          font-weight: 500;
+          color: #666;
+          flex: 1;
+          justify-content: center;
+        }
+
+        .tab-btn:hover {
+          background: rgba(255, 255, 255, 0.1);
+          color: #333;
+        }
+
+        .tab-btn.active {
+          background: linear-gradient(45deg, #667eea, #764ba2);
+          color: white;
+          box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        }
+
+        .tab-icon {
+          font-size: 1.2rem;
+        }
+
+        .tab-content {
+          background: rgba(255, 255, 255, 0.9);
+          backdrop-filter: blur(20px);
+          border: 1px solid rgba(255, 255, 255, 0.3);
+          border-radius: 16px;
+          padding: 2rem;
+          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+
+        .section-header {
+          margin-bottom: 2rem;
+          text-align: center;
+        }
+
+        .section-header h2 {
+          color: #333;
+          font-size: 1.8rem;
+          margin-bottom: 0.5rem;
+        }
+
+        .section-header h3 {
+          color: #333;
+          font-size: 1.5rem;
+          margin-bottom: 0.5rem;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+        }
+
+        .section-header p {
+          color: #666;
+          font-size: 1.1rem;
+        }
+
+        .alert {
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
+          padding: 1rem 1.5rem;
+          border-radius: 8px;
+          margin-bottom: 1.5rem;
+          font-weight: 500;
+        }
+
+        .alert-success {
+          background: rgba(16, 185, 129, 0.1);
+          border: 1px solid rgba(16, 185, 129, 0.3);
+          color: #047857;
+        }
+
+        .alert-error {
+          background: rgba(239, 68, 68, 0.1);
+          border: 1px solid rgba(239, 68, 68, 0.3);
+          color: #dc2626;
+        }
+
+        .alert-icon {
+          font-size: 1.2rem;
+        }
+
+        .register-form {
+          max-width: 500px;
+          margin: 0 auto 3rem;
+        }
+
+        .form-group {
+          margin-bottom: 1.5rem;
+        }
+
+        .form-group label {
+          display: block;
+          margin-bottom: 0.5rem;
+          font-weight: 600;
+          color: #333;
+        }
+
+        .form-input {
+          width: 100%;
+          padding: 0.875rem 1rem;
+          border: 2px solid rgba(0, 0, 0, 0.1);
+          border-radius: 8px;
+          font-size: 1rem;
+          transition: all 0.3s ease;
+          background: rgba(255, 255, 255, 0.8);
+        }
+
+        .form-input:focus {
+          outline: none;
+          border-color: #667eea;
+          box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .input-help {
+          margin-top: 0.5rem;
+          font-size: 0.875rem;
+          color: #666;
+        }
+
+        .btn-primary {
+          background: linear-gradient(45deg, #667eea, #764ba2);
+          color: white;
+          border: none;
+          padding: 1rem 2rem;
+          border-radius: 8px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 0.5rem;
+          width: 100%;
+        }
+
+        .btn-primary:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-primary:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+          transform: none;
+        }
+
+        .btn-secondary {
+          background: rgba(255, 255, 255, 0.2);
+          border: 1px solid rgba(255, 255, 255, 0.3);
+          color: #333;
+          padding: 0.75rem 1.5rem;
+          border-radius: 8px;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          font-weight: 500;
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+        }
+
+        .btn-secondary:hover {
+          background: rgba(255, 255, 255, 0.3);
+          transform: translateY(-2px);
+        }
+
+        .btn-danger {
+          background: linear-gradient(45deg, #ef4444, #f87171);
+          color: white;
+          border: none;
+          padding: 0.5rem;
+          border-radius: 6px;
+          cursor: pointer;
+          transition: all 0.3s ease;
+        }
+
+        .btn-danger:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+        }
+
+        .btn-cancel {
+          background: #6b7280;
+          color: white;
+          border: none;
+          padding: 0.75rem 1.5rem;
+          border-radius: 8px;
+          cursor: pointer;
+          transition: all 0.3s ease;
+        }
+
+        .btn-cancel:hover {
+          background: #4b5563;
+        }
+
+        .btn-icon {
+          font-size: 1rem;
+        }
+
+        .spinner {
+          animation: spin 1s linear infinite;
+        }
+
+        .info-section {
+          background: rgba(59, 130, 246, 0.05);
+          border: 1px solid rgba(59, 130, 246, 0.2);
+          border-radius: 12px;
+          padding: 2rem;
+        }
+
+        .info-section h3 {
+          color: #1e40af;
+          margin-bottom: 1.5rem;
+          font-size: 1.3rem;
+        }
+
+        .info-steps {
+          display: flex;
+          flex-direction: column;
+          gap: 1.5rem;
+        }
+
+        .step {
+          display: flex;
+          align-items: flex-start;
+          gap: 1rem;
+        }
+
+        .step-number {
+          background: linear-gradient(45deg, #667eea, #764ba2);
+          color: white;
+          width: 32px;
+          height: 32px;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-weight: 600;
+          flex-shrink: 0;
+        }
+
+        .step-content h4 {
+          color: #333;
+          margin: 0 0 0.5rem 0;
+          font-size: 1.1rem;
+        }
+
+        .step-content p {
+          color: #666;
+          margin: 0;
+          line-height: 1.5;
+        }
+
+        .loading-state {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 0.75rem;
+          padding: 3rem;
+          color: #666;
+        }
+
+        .empty-state {
+          text-align: center;
+          padding: 4rem 2rem;
+        }
+
+        .empty-icon {
+          font-size: 4rem;
+          margin-bottom: 1rem;
+        }
+
+        .empty-state h3 {
+          color: #333;
+          margin-bottom: 0.5rem;
+        }
+
+        .empty-state p {
+          color: #666;
+          margin-bottom: 2rem;
+        }
+
+        .devices-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+          gap: 1.5rem;
+          margin-bottom: 2rem;
+        }
+
+        .device-card {
+          background: rgba(255, 255, 255, 0.8);
+          border: 2px solid rgba(0, 0, 0, 0.1);
+          border-radius: 12px;
+          padding: 1.5rem;
+          cursor: pointer;
+          transition: all 0.3s ease;
+        }
+
+        .device-card:hover {
+          transform: translateY(-4px);
+          box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+          border-color: #667eea;
+        }
+
+        .device-card.selected {
+          border-color: #667eea;
+          background: rgba(102, 126, 234, 0.05);
+        }
+
+        .device-header {
+          display: flex;
+          align-items: center;
+          gap: 1rem;
+          margin-bottom: 1rem;
+        }
+
+        .device-icon {
+          font-size: 2rem;
+        }
+
+        .device-info h3 {
+          color: #333;
+          margin: 0 0 0.5rem 0;
+          font-size: 1.2rem;
+        }
+
+        .device-meta {
+          display: flex;
+          flex-direction: column;
+          gap: 0.25rem;
+        }
+
+        .device-status {
+          font-size: 0.875rem;
+          font-weight: 500;
+        }
+
+        .device-status.online {
+          color: #10b981;
+        }
+
+        .device-users {
+          color: #666;
+          font-size: 0.875rem;
+        }
+
+        .device-stats {
+          border-top: 1px solid rgba(0, 0, 0, 0.1);
+          padding-top: 1rem;
+        }
+
+        .stat {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+
+        .stat-label {
+          color: #666;
+          font-size: 0.875rem;
+        }
+
+        .stat-value {
+          color: #333;
+          font-weight: 600;
+        }
+
+        .device-users-section {
+          margin-top: 2rem;
+          background: rgba(248, 249, 250, 0.8);
+          border-radius: 12px;
+          padding: 2rem;
+        }
+
+        .add-user-form {
+          background: rgba(255, 255, 255, 0.8);
+          border-radius: 8px;
+          padding: 1.5rem;
+          margin-bottom: 1.5rem;
+        }
+
+        .form-row {
+          display: grid;
+          grid-template-columns: 1fr 1fr auto;
+          gap: 1rem;
+          align-items: end;
+        }
+
+        .form-actions {
+          display: flex;
+          gap: 0.5rem;
+        }
+
+        .users-list {
+          display: flex;
+          flex-direction: column;
+          gap: 1rem;
+        }
+
+        .user-card {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          background: rgba(255, 255, 255, 0.8);
+          border: 1px solid rgba(0, 0, 0, 0.1);
+          border-radius: 8px;
+          padding: 1rem;
+        }
+
+        .user-info {
+          display: flex;
+          align-items: center;
+          gap: 1rem;
+        }
+
+        .user-avatar {
+          width: 40px;
+          height: 40px;
+          border-radius: 50%;
+          background: linear-gradient(45deg, #667eea, #764ba2);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: white;
+          font-weight: 600;
+        }
+
+        .user-details {
+          display: flex;
+          flex-direction: column;
+        }
+
+        .user-email {
+          color: #333;
+          font-weight: 600;
+        }
+
+        .user-meta {
+          color: #666;
+          font-size: 0.875rem;
+        }
+
+        @media (max-width: 768px) {
+          .tab-btn .tab-label {
+            display: none;
+          }
+
+          .form-row {
+            grid-template-columns: 1fr;
+          }
+
+          .devices-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .header .container {
+            flex-direction: column;
+            gap: 1rem;
+          }
+
+          .section-header h3 {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 1rem;
+          }
+        }
+      `}</style>
     </div>
   )
 }
