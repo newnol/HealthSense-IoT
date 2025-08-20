@@ -102,8 +102,18 @@ def main() -> None:
         "secret": args.device_secret,
         "registered_at": existing.get("registered_at") if isinstance(existing, dict) else None,
     }
+    
+    # For backward compatibility, still support single user_id
+    # But recommend using multi-user structure for new devices
     if args.user_uid:
         payload["user_id"] = args.user_uid
+        
+        # Also add to multi-user structure for consistency
+        device_user_ref = db.reference(f"/device_users/{args.device_id}/{args.user_uid}")
+        device_user_ref.set({
+            "registered_at": existing.get("registered_at") if isinstance(existing, dict) else int(time.time() * 1000)
+        })
+        
     if not payload.get("registered_at"):
         payload["registered_at"] = int(time.time() * 1000)
 

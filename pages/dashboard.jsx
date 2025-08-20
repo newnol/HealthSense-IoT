@@ -99,7 +99,13 @@ export default function Dashboard() {
               onClick={() => router.push('/device-setup')}
               className="btn-setup"
             >
-              Thiết bị
+              Đăng ký thiết bị
+            </button>
+            <button 
+              onClick={() => router.push('/device-management')}
+              className="btn-device-mgmt"
+            >
+              Quản lý thiết bị
             </button>
             <button 
               onClick={() => router.push('/ai')}
@@ -211,7 +217,7 @@ export default function Dashboard() {
           color: #666;
         }
 
-        .btn-logout, .btn-setup, .btn-admin, .btn-profile {
+        .btn-logout, .btn-setup, .btn-admin, .btn-profile, .btn-device-mgmt {
           border: none;
           padding: 0.5rem 1rem;
           border-radius: 6px;
@@ -256,6 +262,16 @@ export default function Dashboard() {
 
         .btn-setup:hover {
           background: #218838;
+        }
+
+        .btn-device-mgmt {
+          background: #fd7e14;
+          color: white;
+          margin-right: 0.5rem;
+        }
+
+        .btn-device-mgmt:hover {
+          background: #e8650e;
         }
 
         .container {
