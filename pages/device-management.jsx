@@ -109,16 +109,26 @@ export default function DeviceManagement() {
     if (!user) return
     
     setIsLoading(true)
+    setError('')
     try {
       const token = await user.getIdToken()
       const response = await axios.get(`/api/records/device/${deviceId}/users`, {
         headers: { 'Authorization': `Bearer ${token}` }
       })
-      setDeviceUsers(response.data.users || [])
+      
+      // Safely handle the response data
+      const users = response.data?.users || []
+      console.log('Device users loaded:', users) // Debug log
+      setDeviceUsers(users)
       setSelectedDevice(deviceId)
     } catch (error) {
       console.error('Error loading device users:', error)
-      setError('Không thể tải danh sách người dùng thiết bị')
+      if (error.response?.status === 404) {
+        setDeviceUsers([]) // Device exists but no users
+        setSelectedDevice(deviceId)
+      } else {
+        setError(`Không thể tải danh sách người dùng thiết bị: ${error.response?.data?.error || error.message}`)
+      }
     }
     setIsLoading(false)
   }
@@ -172,17 +182,24 @@ export default function DeviceManagement() {
 
     try {
       const token = await user.getIdToken()
+      
       const response = await axios.delete(`/api/records/device/${selectedDevice}/remove-user`, {
         data: { user_email: userEmail },
         headers: { 'Authorization': `Bearer ${token}` }
       })
 
-      setMessage(response.data.message)
+      setMessage(response.data.message || 'Đã xóa người dùng khỏi thiết bị')
       loadDeviceUsers(selectedDevice)
     } catch (error) {
       console.error('Error removing user:', error)
       if (error.response?.data?.error) {
         setError(error.response.data.error)
+      } else if (error.response?.status === 404) {
+        setError('Không tìm thấy người dùng trong thiết bị')
+      } else if (error.response?.status === 403) {
+        setError('Bạn không có quyền xóa người dùng khỏi thiết bị này')
+      } else if (error.response?.status === 400) {
+        setError('Không thể xóa người dùng cuối cùng khỏi thiết bị')
       } else {
         setError('Có lỗi xảy ra khi xóa người dùng')
       }
@@ -453,30 +470,48 @@ export default function DeviceManagement() {
                   )}
 
                   <div className="users-list">
-                    {deviceUsers.map((deviceUser) => (
-                      <div key={deviceUser.user_email} className="user-card">
-                        <div className="user-info">
-                          <div className="user-avatar">
-                            {deviceUser.user_email.charAt(0).toUpperCase()}
-                          </div>
-                          <div className="user-details">
-                            <div className="user-email">{deviceUser.user_email}</div>
-                            <div className="user-meta">
-                              Thêm vào: {new Date(deviceUser.created_at).toLocaleDateString('vi-VN')}
+                    {deviceUsers.length === 0 ? (
+                      <div className="empty-users">
+                        <div className="empty-icon">👥</div>
+                        <h4>Chưa có người dùng nào</h4>
+                        <p>Hãy thêm người dùng đầu tiên cho thiết bị này</p>
+                      </div>
+                    ) : (
+                      deviceUsers.map((deviceUser, index) => {
+                        // Safe check for user_email
+                        const userEmail = deviceUser?.user_email || deviceUser?.email || `user_${index}`
+                        const displayEmail = typeof userEmail === 'string' ? userEmail : `user_${index}`
+                        const avatarLetter = displayEmail.charAt(0).toUpperCase()
+                        
+                        return (
+                          <div key={displayEmail} className="user-card">
+                            <div className="user-info">
+                              <div className="user-avatar">
+                                {avatarLetter}
+                              </div>
+                              <div className="user-details">
+                                <div className="user-email">{displayEmail}</div>
+                                <div className="user-meta">
+                                  Thêm vào: {deviceUser.created_at 
+                                    ? new Date(deviceUser.created_at).toLocaleDateString('vi-VN')
+                                    : 'Không rõ'
+                                  }
+                                </div>
+                              </div>
+                            </div>
+                            <div className="user-actions">
+                              <button 
+                                onClick={() => removeUserFromDevice(displayEmail)}
+                                className="btn-danger"
+                                title="Xóa người dùng"
+                              >
+                                🗑️
+                              </button>
                             </div>
                           </div>
-                        </div>
-                        <div className="user-actions">
-                          <button 
-                            onClick={() => removeUserFromDevice(deviceUser.user_email)}
-                            className="btn-danger"
-                            title="Xóa người dùng"
-                          >
-                            🗑️
-                          </button>
-                        </div>
-                      </div>
-                    ))}
+                        )
+                      })
+                    )}
                   </div>
                 </div>
               )}
@@ -1013,6 +1048,31 @@ export default function DeviceManagement() {
         .user-meta {
           color: #666;
           font-size: 0.875rem;
+        }
+
+        .empty-users {
+          text-align: center;
+          padding: 3rem 2rem;
+          color: #666;
+          background: rgba(248, 249, 250, 0.8);
+          border: 2px dashed rgba(0, 0, 0, 0.1);
+          border-radius: 8px;
+        }
+
+        .empty-users .empty-icon {
+          font-size: 3rem;
+          margin-bottom: 1rem;
+        }
+
+        .empty-users h4 {
+          color: #333;
+          margin: 0 0 0.5rem 0;
+          font-size: 1.2rem;
+        }
+
+        .empty-users p {
+          margin: 0;
+          font-size: 1rem;
         }
 
         @media (max-width: 768px) {

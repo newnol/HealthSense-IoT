@@ -267,6 +267,72 @@ async def remove_user_from_device(
     
     return {"status": "ok", "message": "User removed from device successfully"}
 
+@router.delete("/device/{device_id}/remove-user")
+async def remove_user_from_device_by_email(
+    device_id: str,
+    req: Request,
+    user = Depends(verify_firebase_token)
+):
+    """Remove a user from a shared device using email"""
+    body = await req.json()
+    user_email = body.get("user_email")
+    
+    if not user_email:
+        raise HTTPException(400, "user_email is required")
+    
+    current_user_id = user.get("uid")
+    
+    # Verify device exists
+    device_ref = db.reference(f"/devices/{device_id}")
+    device_info = device_ref.get()
+    
+    if not device_info:
+        raise HTTPException(404, "Device not found")
+    
+    # Verify current user has access to this device
+    current_user_access = db.reference(f"/device_users/{device_id}/{current_user_id}").get()
+    legacy_user = device_info.get("user_id")
+    
+    if not current_user_access and legacy_user != current_user_id:
+        raise HTTPException(403, "You don't have permission to remove users from this device")
+    
+    # Find user ID by email
+    from firebase_admin import auth
+    try:
+        target_user = auth.get_user_by_email(user_email)
+        target_user_id = target_user.uid
+    except auth.UserNotFoundError:
+        raise HTTPException(404, "User not found")
+    except Exception as e:
+        raise HTTPException(400, f"Error looking up user: {str(e)}")
+    
+    # Check if user is registered to this device
+    device_users_ref = db.reference(f"/device_users/{device_id}")
+    all_device_users = device_users_ref.get() or {}
+    
+    if target_user_id not in all_device_users and legacy_user != target_user_id:
+        raise HTTPException(404, "User is not registered to this device")
+    
+    # Cannot remove yourself if you're the only user
+    if legacy_user:
+        # Count legacy user as one user
+        total_users = len(all_device_users) + 1
+    else:
+        total_users = len(all_device_users)
+    
+    if current_user_id == target_user_id and total_users <= 1:
+        raise HTTPException(400, "Cannot remove the last user from device")
+    
+    # Remove target user
+    if target_user_id in all_device_users:
+        target_user_ref = db.reference(f"/device_users/{device_id}/{target_user_id}")
+        target_user_ref.delete()
+    elif legacy_user == target_user_id:
+        # Cannot remove legacy user without migrating device ownership
+        raise HTTPException(400, "Cannot remove the device owner. Transfer ownership first.")
+    
+    return {"status": "ok", "message": "User removed from device successfully"}
+
 @router.get("/device/{device_id}/users")
 async def get_device_users(device_id: str, user = Depends(verify_firebase_token)):
     """Get list of users registered to a device"""
