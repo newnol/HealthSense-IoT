@@ -27,9 +27,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # MQTT Configuration
-MQTT_BROKER = "70030b8b8dc741c79d6ab7ffa586f461.s1.eu.hivemq.cloud"
+MQTT_BROKER = os.environ.get("MQTT_BROKER")
 MQTT_PORT = 8883
-MQTT_USERNAME = "phamngocthai"
+MQTT_USERNAME = os.environ.get("MQTT_USERNAME")
 MQTT_BROKER = os.environ.get("MQTT_BROKER")
 MQTT_PORT = int(os.environ.get("MQTT_PORT", "8883"))
 MQTT_USERNAME = os.environ.get("MQTT_USERNAME")
