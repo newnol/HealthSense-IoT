@@ -248,7 +248,7 @@ async def sumerize_for_user(
         "Your task is to:\n"
         "1. Read their information carefully.\n"
         "2. Analyze the information based on medical knowledge.\n"
-        "3. Give user short answer, 3 - 4 sentences long. Because this will be display in an IOT device, so it shouldn't be too long. "
+        "3. Give user short answer, 3 - 4 sentences long, no more than 50 words. Because this will be display in an IOT device, so it shouldn't be too long. "
         "It must have content about evaluation of their health based on their measurements (mostly Heart Rate and SpO2, but use other information as well to make it more precise). "
         "Give user short recommendation about their own health if your analysis about their health is not good. If it is good, make general health recommendation, and make it related to theirs. "
         "Use friendly, polite voice.\n"
