@@ -46,6 +46,17 @@ export default function Schedule() {
     }
   }, [user, activeTab])
 
+  // Auto-refresh schedules every 30 seconds to show status updates
+  useEffect(() => {
+    if (activeTab === 'manage' && user) {
+      const interval = setInterval(() => {
+        loadUserSchedules(false) // Silent refresh, no loading spinner
+      }, 30000) // Refresh every 30 seconds
+
+      return () => clearInterval(interval)
+    }
+  }, [activeTab, user])
+
   const loadUserDevices = async () => {
     if (!user) return
     
@@ -63,10 +74,12 @@ export default function Schedule() {
     setIsLoading(false)
   }
 
-  const loadUserSchedules = async () => {
+  const loadUserSchedules = async (showLoading = true) => {
     if (!user) return
     
-    setIsLoading(true)
+    if (showLoading) {
+      setIsLoading(true)
+    }
     try {
       const token = await user.getIdToken()
       const response = await axios.get('/api/schedule/user', {
@@ -77,21 +90,23 @@ export default function Schedule() {
       console.error('Error loading schedules:', error)
       setError('Không thể tải danh sách lịch trình')
     }
-    setIsLoading(false)
+    if (showLoading) {
+      setIsLoading(false)
+    }
   }
 
-  const handleCreateSchedule = async (e) => {
-    e.preventDefault()
-    
+  const handleCreateSchedule = async () => {
     if (!selectedDevice) {
       setError('Vui lòng chọn thiết bị')
       return
     }
 
-    // Validate date
-    const scheduleDate = new Date(scheduleTime.year, scheduleTime.month - 1, scheduleTime.day, scheduleTime.hour, scheduleTime.minute)
-    if (scheduleDate <= new Date()) {
-      setError('Thời gian lập lịch phải sau thời điểm hiện tại')
+    // Validate schedule time is in the future
+    const localScheduleDate = new Date(scheduleTime.year, scheduleTime.month - 1, scheduleTime.day, scheduleTime.hour, scheduleTime.minute)
+    const now = new Date()
+    
+    if (localScheduleDate <= now) {
+      setError('Thời gian lịch trình phải là thời gian trong tương lai')
       return
     }
 
@@ -102,15 +117,24 @@ export default function Schedule() {
     try {
       const token = await user.getIdToken()
       
+      // Use new timezone-aware schedule_time format
+      const scheduleTimePayload = {
+        minute: scheduleTime.minute,
+        hour: scheduleTime.hour,
+        day: scheduleTime.day,
+        month: scheduleTime.month,
+        year: scheduleTime.year
+      }
+      
+      console.log('Schedule creation:', {
+        local_time: localScheduleDate.toISOString(),
+        schedule_time: scheduleTimePayload,
+        device_id: selectedDevice
+      })
+      
       const response = await axios.post('/api/schedule/create', {
         device_id: selectedDevice,
-        scheduled_time: {
-          minute: scheduleTime.minute,
-          hour: scheduleTime.hour,
-          day: scheduleTime.day,
-          month: scheduleTime.month,
-          year: scheduleTime.year
-        }
+        schedule_time: scheduleTimePayload
       }, {
         headers: { 'Authorization': `Bearer ${token}` }
       })
@@ -174,42 +198,52 @@ export default function Schedule() {
     setIsLoading(false)
   }
 
-  const handleTestMqtt = async (deviceId) => {
-    setIsLoading(true)
-    setError('')
-    setMessage('')
-
-    try {
-      const token = await user.getIdToken()
-      
-      const response = await axios.post(`/api/schedule/test-mqtt/${deviceId}`, {}, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
-
-      setMessage(`Test MQTT đã gửi thành công đến thiết bị ${deviceId}!`)
-    } catch (error) {
-      console.error('Test MQTT error:', error)
-      if (error.response?.data?.detail) {
-        setError(error.response.data.detail)
-      } else {
-        setError('Có lỗi xảy ra khi test MQTT')
-      }
-    }
-    setIsLoading(false)
-  }
-
   const formatScheduleTime = (schedule) => {
-    const { minute, hour, day, month, year } = schedule.scheduled_time
-    return `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')} - ${day}/${month}/${year}`
+    // Use the new schedule_time_user format if available, otherwise fall back to expiry_time
+    if (schedule.schedule_time_user) {
+      const schedTime = schedule.schedule_time_user
+      const localHour = schedTime.hour.toString().padStart(2, '0')
+      const localMinute = schedTime.minute.toString().padStart(2, '0')
+      const localDay = schedTime.day
+      const localMonth = schedTime.month
+      const localYear = schedTime.year
+      
+      return `${localYear}/${localMonth.toString().padStart(2, '0')}/${localDay.toString().padStart(2, '0')} ${localHour}:${localMinute}`
+    } else if (schedule.expiry_time) {
+      // Fallback for old format
+      const expiryDate = new Date(schedule.expiry_time)
+      const localHour = expiryDate.getHours().toString().padStart(2, '0')
+      const localMinute = expiryDate.getMinutes().toString().padStart(2, '0')
+      const localDay = expiryDate.getDate()
+      const localMonth = expiryDate.getMonth() + 1
+      const localYear = expiryDate.getFullYear()
+      
+      return `${localYear}/${localMonth.toString().padStart(2, '0')}/${localDay.toString().padStart(2, '0')} ${localHour}:${localMinute}`
+    }
+    return 'Invalid date'
   }
 
   const getScheduleStatus = (schedule) => {
     const now = new Date()
-    const { minute, hour, day, month, year } = schedule.scheduled_time
-    const scheduleDate = new Date(year, month - 1, day, hour, minute)
+    let scheduleDate
     
-    if (scheduleDate <= now) {
-      return { status: 'completed', text: 'Đã hoàn thành', color: '#10b981' }
+    // Handle new format
+    if (schedule.schedule_time_user) {
+      const schedTime = schedule.schedule_time_user
+      scheduleDate = new Date(schedTime.year, schedTime.month - 1, schedTime.day, schedTime.hour, schedTime.minute)
+    } else if (schedule.expiry_time) {
+      // Handle old format
+      scheduleDate = new Date(schedule.expiry_time)
+    } else {
+      return { status: 'invalid', text: 'Lỗi', color: '#ef4444' }
+    }
+    
+    if (schedule.status === 'sent') {
+      return { status: 'sent', text: 'Đã gửi', color: '#10b981' }
+    } else if (schedule.status === 'failed') {
+      return { status: 'failed', text: 'Thất bại', color: '#ef4444' }
+    } else if (scheduleDate <= now) {
+      return { status: 'pending_overdue', text: 'Quá hạn', color: '#ef4444' }
     } else {
       return { status: 'pending', text: 'Đang chờ', color: '#f59e0b' }
     }
@@ -272,7 +306,7 @@ export default function Schedule() {
                 <p>Lập lịch thông báo đo sức khỏe cho thiết bị của bạn</p>
               </div>
 
-              <form onSubmit={handleCreateSchedule} className="create-form">
+              <form onSubmit={(e) => { e.preventDefault(); handleCreateSchedule(); }} className="create-form">
                 <div className="form-group">
                   <label htmlFor="device">Chọn thiết bị</label>
                   <select
@@ -298,29 +332,30 @@ export default function Schedule() {
                   <h3>Thời gian thông báo</h3>
                   <div className="time-grid">
                     <div className="time-group">
-                      <label htmlFor="minute">Phút</label>
+                      <label htmlFor="year">Năm</label>
                       <select
-                        id="minute"
-                        value={scheduleTime.minute}
-                        onChange={(e) => setScheduleTime({...scheduleTime, minute: parseInt(e.target.value)})}
+                        id="year"
+                        value={scheduleTime.year}
+                        onChange={(e) => setScheduleTime({...scheduleTime, year: parseInt(e.target.value)})}
                         className="form-select"
                       >
-                        {Array.from({length: 60}, (_, i) => (
-                          <option key={i} value={i}>{i.toString().padStart(2, '0')}</option>
-                        ))}
+                        {Array.from({length: 10}, (_, i) => {
+                          const year = new Date().getFullYear() + i
+                          return <option key={year} value={year}>{year}</option>
+                        })}
                       </select>
                     </div>
 
                     <div className="time-group">
-                      <label htmlFor="hour">Giờ</label>
+                      <label htmlFor="month">Tháng</label>
                       <select
-                        id="hour"
-                        value={scheduleTime.hour}
-                        onChange={(e) => setScheduleTime({...scheduleTime, hour: parseInt(e.target.value)})}
+                        id="month"
+                        value={scheduleTime.month}
+                        onChange={(e) => setScheduleTime({...scheduleTime, month: parseInt(e.target.value)})}
                         className="form-select"
                       >
-                        {Array.from({length: 24}, (_, i) => (
-                          <option key={i} value={i}>{i.toString().padStart(2, '0')}</option>
+                        {Array.from({length: 12}, (_, i) => (
+                          <option key={i+1} value={i+1}>{i+1}</option>
                         ))}
                       </select>
                     </div>
@@ -340,31 +375,30 @@ export default function Schedule() {
                     </div>
 
                     <div className="time-group">
-                      <label htmlFor="month">Tháng</label>
+                      <label htmlFor="hour">Giờ</label>
                       <select
-                        id="month"
-                        value={scheduleTime.month}
-                        onChange={(e) => setScheduleTime({...scheduleTime, month: parseInt(e.target.value)})}
+                        id="hour"
+                        value={scheduleTime.hour}
+                        onChange={(e) => setScheduleTime({...scheduleTime, hour: parseInt(e.target.value)})}
                         className="form-select"
                       >
-                        {Array.from({length: 12}, (_, i) => (
-                          <option key={i+1} value={i+1}>{i+1}</option>
+                        {Array.from({length: 24}, (_, i) => (
+                          <option key={i} value={i}>{i.toString().padStart(2, '0')}</option>
                         ))}
                       </select>
                     </div>
 
                     <div className="time-group">
-                      <label htmlFor="year">Năm</label>
+                      <label htmlFor="minute">Phút</label>
                       <select
-                        id="year"
-                        value={scheduleTime.year}
-                        onChange={(e) => setScheduleTime({...scheduleTime, year: parseInt(e.target.value)})}
+                        id="minute"
+                        value={scheduleTime.minute}
+                        onChange={(e) => setScheduleTime({...scheduleTime, minute: parseInt(e.target.value)})}
                         className="form-select"
                       >
-                        {Array.from({length: 10}, (_, i) => {
-                          const year = new Date().getFullYear() + i
-                          return <option key={year} value={year}>{year}</option>
-                        })}
+                        {Array.from({length: 60}, (_, i) => (
+                          <option key={i} value={i}>{i.toString().padStart(2, '0')}</option>
+                        ))}
                       </select>
                     </div>
                   </div>
@@ -384,9 +418,6 @@ export default function Schedule() {
                           {scheduleTime.minute.toString().padStart(2, '0')} - 
                           {scheduleTime.day}/{scheduleTime.month}/{scheduleTime.year}
                         </strong>
-                      </div>
-                      <div className="preview-note">
-                        💡 Tip: Để test nhanh, hãy đặt thời gian 1-2 phút sau thời điểm hiện tại
                       </div>
                     </div>
                   </div>
@@ -409,26 +440,6 @@ export default function Schedule() {
                     </>
                   )}
                 </button>
-
-                {selectedDevice && (
-                  <button 
-                    type="button"
-                    onClick={() => {
-                      const now = new Date()
-                      now.setMinutes(now.getMinutes() + 2) // 2 minutes from now
-                      setScheduleTime({
-                        minute: now.getMinutes(),
-                        hour: now.getHours(),
-                        day: now.getDate(),
-                        month: now.getMonth() + 1,
-                        year: now.getFullYear()
-                      })
-                    }}
-                    className="btn-test"
-                  >
-                    🚀 Đặt thời gian test (2 phút nữa)
-                  </button>
-                )}
               </form>
 
               <div className="info-section">
@@ -456,20 +467,6 @@ export default function Schedule() {
                     </div>
                   </div>
                 </div>
-
-                {selectedDevice && (
-                  <div className="test-section">
-                    <h4>🧪 Test MQTT</h4>
-                    <p>Kiểm tra kết nối MQTT với thiết bị đã chọn</p>
-                    <button 
-                      onClick={() => handleTestMqtt(selectedDevice)}
-                      disabled={isLoading}
-                      className="btn-test"
-                    >
-                      {isLoading ? '⏳ Đang test...' : '📡 Test MQTT ngay'}
-                    </button>
-                  </div>
-                )}
               </div>
             </div>
           </div>
@@ -480,8 +477,18 @@ export default function Schedule() {
           <div className="tab-content">
             <div className="manage-section">
               <div className="section-header">
-                <h2>📋 Danh sách lịch trình</h2>
-                <p>Quản lý các lịch trình đã tạo</p>
+                <div>
+                  <h2>📋 Danh sách lịch trình</h2>
+                  <p>Quản lý các lịch trình đã tạo</p>
+                </div>
+                <button 
+                  onClick={loadUserSchedules}
+                  className="refresh-button"
+                  disabled={isLoading}
+                  title="Làm mới danh sách"
+                >
+                  🔄 Làm mới
+                </button>
               </div>
 
               {isLoading && (
@@ -529,7 +536,7 @@ export default function Schedule() {
                           <div className="meta-item">
                             <span className="meta-label">Tạo lúc:</span>
                             <span className="meta-value">
-                              {new Date(schedule.created_at).toLocaleString('vi-VN')}
+                              {new Date(schedule.time_create).toLocaleString('vi-VN')}
                             </span>
                           </div>
                           {schedule.sent_at && (
@@ -695,6 +702,38 @@ export default function Schedule() {
 
         .section-header {
           margin-bottom: 2rem;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 1rem;
+        }
+
+        .refresh-button {
+          background: linear-gradient(45deg, #10b981, #059669);
+          color: white;
+          border: none;
+          padding: 0.5rem 1rem;
+          border-radius: 8px;
+          cursor: pointer;
+          font-size: 0.9rem;
+          font-weight: 500;
+          transition: all 0.3s ease;
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+        }
+
+        .refresh-button:hover:not(:disabled) {
+          background: linear-gradient(45deg, #059669, #047857);
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+        }
+
+        .refresh-button:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
           text-align: center;
         }
 
@@ -862,37 +901,6 @@ export default function Schedule() {
           transform: none;
         }
 
-        .btn-test {
-          background: linear-gradient(45deg, #17a2b8, #20c997);
-          color: white;
-          border: none;
-          padding: 0.75rem 1.5rem;
-          border-radius: 8px;
-          font-weight: 500;
-          cursor: pointer;
-          transition: all 0.3s ease;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 0.5rem;
-          width: 100%;
-          margin-top: 0.5rem;
-          font-size: 0.9rem;
-        }
-
-        .btn-test:hover {
-          background: linear-gradient(45deg, #138496, #1ea97c);
-          transform: translateY(-2px);
-          box-shadow: 0 4px 12px rgba(23, 162, 184, 0.3);
-        }
-
-        .preview-note {
-          color: #17a2b8;
-          font-size: 0.875rem;
-          font-style: italic;
-          margin-top: 0.5rem;
-        }
-
         .btn-secondary {
           background: rgba(255, 255, 255, 0.2);
           border: 1px solid rgba(255, 255, 255, 0.3);
@@ -913,28 +921,8 @@ export default function Schedule() {
           transform: translateY(-2px);
         }
 
-        .btn-danger {
-          background: linear-gradient(45deg, #ef4444, #f87171);
-          color: white;
-          border: none;
-          padding: 0.75rem 1rem;
-          border-radius: 6px;
-          cursor: pointer;
-          transition: all 0.3s ease;
-          font-size: 0.875rem;
-        }
-
-        .btn-danger:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
-        }
-
         .btn-icon {
           font-size: 1rem;
-        }
-
-        .spinner {
-          animation: spin 1s linear infinite;
         }
 
         .info-section {
@@ -948,24 +936,6 @@ export default function Schedule() {
           color: #1e40af;
           margin-bottom: 1.5rem;
           font-size: 1.3rem;
-        }
-
-        .test-section {
-          margin-top: 2rem;
-          padding-top: 1.5rem;
-          border-top: 1px solid rgba(59, 130, 246, 0.2);
-        }
-
-        .test-section h4 {
-          color: #1e40af;
-          margin-bottom: 0.5rem;
-          font-size: 1.1rem;
-        }
-
-        .test-section p {
-          color: #666;
-          margin-bottom: 1rem;
-          font-size: 0.9rem;
         }
 
         .info-steps {
@@ -1032,6 +1002,26 @@ export default function Schedule() {
         .empty-state p {
           color: #666;
           margin-bottom: 2rem;
+        }
+
+        .btn-danger {
+          background: linear-gradient(45deg, #ef4444, #f87171);
+          color: white;
+          border: none;
+          padding: 0.75rem 1rem;
+          border-radius: 6px;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          font-size: 0.875rem;
+        }
+
+        .btn-danger:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+        }
+
+        .spinner {
+          animation: spin 1s linear infinite;
         }
 
         .schedules-grid {

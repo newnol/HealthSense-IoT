@@ -1,16 +1,24 @@
-# api/schedule.py
-from fastapi import APIRouter, Request, Depends, HTTPException, BackgroundTasks
-from firebase_admin import db
+# api/schedule_new.py - New timezone-aware scheduling system
+from fastapi import APIRouter, Request, Depends, HTTPException
+from firebase_admin import db, auth as firebase_admin_auth
 import time
-import json
 import ssl
 import paho.mqtt.client as mqtt
-from datetime import datetime, timezone
-import threading
-import asyncio
-from .auth import verify_firebase_token
-from typing import Optional
+from datetime import datetime
+import uuid
+import pytz
 import logging
+import atexit
+from .auth import verify_firebase_token
+
+try:
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.triggers.date import DateTrigger
+    from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR
+    APSCHEDULER_AVAILABLE = True
+except ImportError:
+    APSCHEDULER_AVAILABLE = False
+    print("APScheduler not available, falling back to simple scheduling")
 
 router = APIRouter(prefix="/api/schedule")
 
@@ -18,21 +26,48 @@ router = APIRouter(prefix="/api/schedule")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# MQTT Configuration for HiveMQ
+# MQTT Configuration
 MQTT_BROKER = "70030b8b8dc741c79d6ab7ffa586f461.s1.eu.hivemq.cloud"
 MQTT_PORT = 8883
-# Note: For production, these should be set as environment variables
-# For now, we'll implement a mock system that logs the notifications
-MQTT_USERNAME = "phamngocthai"  # HiveMQ username
-MQTT_PASSWORD = "Thai2005"      # HiveMQ password
-MOCK_MQTT = False  # Set to False now that we have valid HiveMQ credentials
+MQTT_USERNAME = "phamngocthai"
+MQTT_PASSWORD = "Thai2005"
+MOCK_MQTT = False
 
-# Global scheduler state
-scheduler_running = False
-scheduler_thread = None
+# APScheduler instance
+scheduler = None
+scheduler_started = False
+
+if APSCHEDULER_AVAILABLE:
+    scheduler = BackgroundScheduler()
+
+def start_scheduler():
+    """Start the APScheduler if available"""
+    global scheduler_started
+    if APSCHEDULER_AVAILABLE and scheduler and not scheduler_started:
+        scheduler.start()
+        scheduler_started = True
+        logger.info("APScheduler started successfully")
+        
+        def job_listener(event):
+            if event.exception:
+                logger.error(f"Job {event.job_id} crashed: {event.exception}")
+            else:
+                logger.info(f"Job {event.job_id} executed successfully")
+        
+        scheduler.add_listener(job_listener, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
+
+def stop_scheduler():
+    """Stop the scheduler"""
+    global scheduler_started
+    if APSCHEDULER_AVAILABLE and scheduler and scheduler_started:
+        scheduler.shutdown()
+        scheduler_started = False
+        logger.info("APScheduler stopped")
+
+atexit.register(stop_scheduler)
 
 def create_mqtt_client():
-    """Create and configure MQTT client for HiveMQ"""
+    """Create and configure MQTT client"""
     client = mqtt.Client(protocol=mqtt.MQTTv311)
     
     # Configure TLS
@@ -41,424 +76,360 @@ def create_mqtt_client():
     context.verify_mode = ssl.CERT_REQUIRED
     client.tls_set_context(context)
     
-    # Set credentials if available
+    # Set credentials
     if MQTT_USERNAME and MQTT_PASSWORD:
         client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
     
     return client
 
-def send_mqtt_notification(device_id: str, message: str):
-    """Send notification to device via MQTT or mock system"""
+def send_mqtt_notification_sync(device_id: str, uid: str, schedule_id: str):
+    """Send MQTT notification with topic format: device_id (old version format)"""
     
-    # If MOCK_MQTT is enabled, just log the notification
     if MOCK_MQTT:
-        logger.info(f"[MOCK MQTT] Would send to device {device_id}: {message}")
-        
-        # Store the notification in Firebase for testing/verification
-        notifications_ref = db.reference("/mqtt_notifications")
-        notification_data = {
-            "device_id": device_id,
-            "message": message,
-            "timestamp": int(time.time() * 1000),
-            "topic": f"healthsense/{device_id}/notification",
-            "type": "scheduled_notification",
-            "action": "health_check_reminder",
-            "mock": True
-        }
-        notifications_ref.push(notification_data)
-        
+        logger.info(f"[MOCK MQTT] Would send to {device_id}: Health check reminder")
+        update_schedule_status(schedule_id, "sent", "Mock MQTT notification sent")
         return True
     
-    # Real MQTT implementation
     try:
         client = create_mqtt_client()
         success = False
+        error_message = None
         
         def on_connect(client, userdata, flags, rc):
-            nonlocal success
+            nonlocal success, error_message
             if rc == 0:
-                logger.info(f"Connected to MQTT broker for device {device_id}")
-                # Publish message to device-specific topic
-                topic = f"healthsense/{device_id}/notification"
-                payload = {
-                    "timestamp": int(time.time() * 1000),
-                    "message": message,
-                    "type": "scheduled_notification",
-                    "action": "health_check_reminder"
-                }
-                client.publish(topic, json.dumps(payload), qos=1)
-                logger.info(f"Notification sent to {topic}: {message}")
-                success = True
-                client.disconnect()
+                # Use device_id only (old version format)
+                topic = device_id
+                message = "Health check reminder"
+                
+                result = client.publish(topic, message, qos=2)  # QoS 2 for guaranteed delivery
+                if result.rc == mqtt.MQTT_ERR_SUCCESS:
+                    success = True
+                    logger.info(f"MQTT published to {topic} with QoS 2")
+                else:
+                    error_message = f"Publish failed: {result.rc}"
             else:
-                logger.error(f"Failed to connect to MQTT broker: {rc}")
-                success = False
+                error_message = f"Connection failed: {rc}"
         
         def on_publish(client, userdata, mid):
-            logger.info(f"Message published successfully for device {device_id}")
-        
-        def on_disconnect(client, userdata, rc):
-            logger.info(f"Disconnected from MQTT broker for device {device_id}")
+            logger.info(f"MQTT message confirmed, mid: {mid}")
         
         client.on_connect = on_connect
         client.on_publish = on_publish
-        client.on_disconnect = on_disconnect
         
-        # Connect to broker
         client.connect(MQTT_BROKER, MQTT_PORT, 60)
         client.loop_start()
         
-        # Wait a moment for the message to be sent
-        time.sleep(3)
+        # Wait for connection and publish
+        timeout = 10
+        elapsed = 0
+        while elapsed < timeout and not success and not error_message:
+            time.sleep(0.5)
+            elapsed += 0.5
+        
         client.loop_stop()
+        client.disconnect()
         
-        return success
-        
+        if success:
+            update_schedule_status(schedule_id, "sent", "MQTT notification sent successfully")
+            return True
+        else:
+            update_schedule_status(schedule_id, "failed", error_message or "Timeout")
+            return False
+            
     except Exception as e:
-        logger.error(f"Error sending MQTT notification: {str(e)}")
+        error_msg = f"MQTT error: {str(e)}"
+        logger.error(error_msg)
+        update_schedule_status(schedule_id, "failed", error_msg)
         return False
 
-def calculate_notification_time(scheduled_time: dict, user_timezone: str = "UTC") -> datetime:
-    """Calculate the exact notification time considering user timezone"""
-    # For now, we'll use UTC. In the future, you can implement timezone conversion
-    # based on user_timezone parameter
-    
-    year = scheduled_time.get("year")
-    month = scheduled_time.get("month")
-    day = scheduled_time.get("day")
-    hour = scheduled_time.get("hour")
-    minute = scheduled_time.get("minute")
-    
-    notification_datetime = datetime(year, month, day, hour, minute, tzinfo=timezone.utc)
-    return notification_datetime
+def update_schedule_status(schedule_id: str, status: str, message: str = ""):
+    """Update schedule status in Firebase"""
+    try:
+        schedule_ref = db.reference(f"/schedules/{schedule_id}")
+        update_data = {
+            "status": status,
+            "status_message": message,
+            "status_updated_at": int(time.time() * 1000)
+        }
+        
+        # Add sent_at timestamp when status is sent
+        if status == "sent":
+            update_data["sent_at"] = int(time.time() * 1000)
+        
+        schedule_ref.update(update_data)
+        logger.info(f"Schedule {schedule_id} status updated to: {status} - {message}")
+    except Exception as e:
+        logger.error(f"Failed to update schedule status: {str(e)}")
 
-def background_scheduler():
-    """Background task that checks for pending schedules and sends notifications"""
-    global scheduler_running
-    
-    logger.info("Background scheduler started")
-    
-    while scheduler_running:
-        try:
-            # Check for pending schedules every 30 seconds
-            now = datetime.now(timezone.utc)
-            
-            # Query all pending schedules
-            schedules_ref = db.reference("/schedules")
-            all_schedules = schedules_ref.order_by_child("status").equal_to("pending").get()
-            
-            if all_schedules:
-                for schedule_id, schedule_data in all_schedules.items():
-                    try:
-                        # Parse notification time
-                        scheduled_time = schedule_data.get("scheduled_time")
-                        if not scheduled_time:
-                            continue
-                        
-                        notification_time = calculate_notification_time(scheduled_time)
-                        
-                        # Check if it's time to send the notification (within 1 minute window)
-                        time_diff = (notification_time - now).total_seconds()
-                        
-                        if -30 <= time_diff <= 30:  # 30 second window
-                            device_id = schedule_data.get("device_id")
-                            
-                            # Send MQTT notification
-                            message = f"Health Check Reminder: Time for your scheduled health monitoring on device {device_id}"
-                            success = send_mqtt_notification(device_id, message)
-                            
-                            # Update schedule status
-                            schedule_ref = db.reference(f"/schedules/{schedule_id}")
-                            update_data = {
-                                "sent_at": int(time.time() * 1000),
-                                "status": "sent" if success else "failed"
-                            }
-                            
-                            if not success:
-                                update_data["error"] = "Failed to send MQTT notification"
-                            
-                            schedule_ref.update(update_data)
-                            
-                            logger.info(f"Processed schedule {schedule_id} for device {device_id}: {'Success' if success else 'Failed'}")
-                    
-                    except Exception as e:
-                        logger.error(f"Error processing schedule {schedule_id}: {str(e)}")
-                        # Mark as failed
-                        schedule_ref = db.reference(f"/schedules/{schedule_id}")
-                        schedule_ref.update({
-                            "status": "failed",
-                            "error": str(e),
-                            "failed_at": int(time.time() * 1000)
-                        })
-            
-            # Sleep for 30 seconds before next check
-            time.sleep(30)
-            
-        except Exception as e:
-            logger.error(f"Error in background scheduler: {str(e)}")
-            time.sleep(60)  # Wait longer on error
-    
-    logger.info("Background scheduler stopped")
-
-def start_background_scheduler():
-    """Start the background scheduler if not already running"""
-    global scheduler_running, scheduler_thread
-    
-    if not scheduler_running:
-        scheduler_running = True
-        scheduler_thread = threading.Thread(target=background_scheduler, daemon=True)
-        scheduler_thread.start()
-        logger.info("Background scheduler started successfully")
-
-def stop_background_scheduler():
-    """Stop the background scheduler"""
-    global scheduler_running
-    scheduler_running = False
-    logger.info("Background scheduler stop requested")
-
-# Start scheduler when module loads
-start_background_scheduler()
+def get_user_timezone(uid: str) -> str:
+    """Get user's timezone from profile"""
+    try:
+        profile_ref = db.reference(f"/user_profiles/{uid}")
+        profile_data = profile_ref.get()
+        
+        if profile_data and profile_data.get("timezone"):
+            return profile_data["timezone"]
+        
+        return "UTC"  # Default to UTC
+        
+    except Exception as e:
+        logger.error(f"Error getting user timezone: {str(e)}")
+        return "UTC"
 
 @router.post("/create")
-async def create_schedule(req: Request, user=Depends(verify_firebase_token)):
-    """Create a new schedule for a device"""
-    data = await req.json()
-    device_id = data.get("device_id")
-    scheduled_time = data.get("scheduled_time")
-    
-    if not device_id or not scheduled_time:
-        raise HTTPException(400, "Missing device_id or scheduled_time")
-    
-    # Validate scheduled_time structure
-    required_fields = ["minute", "hour", "day", "month", "year"]
-    for field in required_fields:
-        if field not in scheduled_time:
-            raise HTTPException(400, f"Missing {field} in scheduled_time")
-    
-    user_id = user.get("uid")
-    
-    # Verify user has access to this device
-    device_ref = db.reference(f"/devices/{device_id}")
-    device_info = device_ref.get()
-    
-    if not device_info:
-        raise HTTPException(404, "Device not found")
-    
-    # Check if user has access to this device
-    user_access = db.reference(f"/device_users/{device_id}/{user_id}").get()
-    legacy_user = device_info.get("user_id")
-    
-    if not user_access and legacy_user != user_id:
-        raise HTTPException(403, "You don't have permission to schedule notifications for this device")
-    
-    # Validate that the scheduled time is in the future
+async def create_schedule(request: Request):
+    """Create a new timezone-aware schedule"""
     try:
-        notification_time = calculate_notification_time(scheduled_time)
-        now = datetime.now(timezone.utc)
+        data = await request.json()
         
-        if notification_time <= now:
-            raise HTTPException(400, "Scheduled time must be in the future")
-    except ValueError as e:
-        raise HTTPException(400, f"Invalid date/time: {str(e)}")
-    
-    # Create schedule record
-    schedules_ref = db.reference("/schedules")
-    schedule_data = {
-        "user_id": user_id,
-        "device_id": device_id,
-        "scheduled_time": scheduled_time,
-        "created_at": int(time.time() * 1000),
-        "status": "pending",
-        "notification_time_utc": notification_time.isoformat()
-    }
-    
-    new_schedule_ref = schedules_ref.push(schedule_data)
-    schedule_id = new_schedule_ref.key
-    
-    # Ensure background scheduler is running
-    start_background_scheduler()
-    
-    return {
-        "status": "ok",
-        "message": "Schedule created successfully",
-        "schedule_id": schedule_id,
-        "notification_time": notification_time.isoformat()
-    }
+        # Get Firebase user token
+        authorization = request.headers.get("Authorization")
+        if not authorization or not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Missing authorization header")
+        
+        token = authorization.split("Bearer ")[1]
+        decoded_token = firebase_admin_auth.verify_id_token(token)
+        uid = decoded_token['uid']
+        
+        # Validate required fields
+        device_id = data.get('device_id')
+        schedule_time = data.get('schedule_time')  # {minute, hour, day, month, year}
+        
+        if not device_id or not schedule_time:
+            raise HTTPException(status_code=400, detail="Missing device_id or schedule_time")
+        
+        # Validate schedule_time structure
+        required_fields = ['minute', 'hour', 'day', 'month', 'year']
+        for field in required_fields:
+            if field not in schedule_time:
+                raise HTTPException(status_code=400, detail=f"Missing {field} in schedule_time")
+        
+        # Check device access
+        device_ref = db.reference(f"/devices/{device_id}")
+        device_data = device_ref.get()
+        
+        if not device_data:
+            raise HTTPException(status_code=404, detail="Device not found")
+        
+        device_users_ref = db.reference(f"/device_users/{device_id}")
+        device_users = device_users_ref.get()
+        
+        if not device_users or uid not in device_users:
+            raise HTTPException(status_code=403, detail="You don't have access to this device")
+        
+        # Get user's timezone
+        user_timezone = get_user_timezone(uid)
+        logger.info(f"User {uid} timezone: {user_timezone}")
+        
+        # Create datetime in user's timezone
+        try:
+            user_tz = pytz.timezone(user_timezone)
+            schedule_datetime = user_tz.localize(datetime(
+                year=schedule_time['year'],
+                month=schedule_time['month'],
+                day=schedule_time['day'],
+                hour=schedule_time['hour'],
+                minute=schedule_time['minute']
+            ))
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid schedule time: {str(e)}")
+        
+        # Convert to UTC for storage and scheduling
+        schedule_utc = schedule_datetime.astimezone(pytz.UTC)
+        current_utc = datetime.now(pytz.UTC)
+        
+        # Validate that schedule is in the future
+        if schedule_utc <= current_utc:
+            raise HTTPException(status_code=400, detail="Schedule time must be in the future")
+        
+        # Create schedule record
+        schedule_id = str(uuid.uuid4())
+        current_time = int(time.time() * 1000)
+        
+        schedule_data = {
+            "uid": uid,
+            "device_id": device_id,
+            "time_create": current_time,
+            "schedule_time_user": {
+                "minute": schedule_time['minute'],
+                "hour": schedule_time['hour'],
+                "day": schedule_time['day'],
+                "month": schedule_time['month'],
+                "year": schedule_time['year'],
+                "timezone": user_timezone
+            },
+            "schedule_time_utc": int(schedule_utc.timestamp() * 1000),
+            "status": "scheduled",
+            "status_message": "Scheduled for delivery",
+            "topic": device_id
+        }
+        
+        # Save to Firebase
+        schedule_ref = db.reference(f"/schedules/{schedule_id}")
+        schedule_ref.set(schedule_data)
+        
+        # Schedule the MQTT job
+        if APSCHEDULER_AVAILABLE:
+            start_scheduler()
+            
+            job_id = f"schedule_{schedule_id}"
+            scheduler.add_job(
+                func=send_mqtt_notification_sync,
+                trigger=DateTrigger(run_date=schedule_utc),
+                args=[device_id, uid, schedule_id],
+                id=job_id,
+                name=f"MQTT notification for {device_id}",
+                misfire_grace_time=60
+            )
+            
+            logger.info(f"Scheduled MQTT job {job_id} for {schedule_utc}")
+        else:
+            logger.warning("APScheduler not available, schedule created but will not be executed")
+        
+        return {
+            "status": "ok",
+            "message": "Schedule created successfully",
+            "schedule_id": schedule_id,
+            "schedule_time_utc": int(schedule_utc.timestamp() * 1000),
+            "schedule_time_user": schedule_datetime.isoformat(),
+            "topic": device_id,
+            "will_execute_at": schedule_utc.isoformat(),
+            "apscheduler_available": APSCHEDULER_AVAILABLE
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating schedule: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @router.get("/user")
 async def get_user_schedules(user=Depends(verify_firebase_token), limit: int = 100):
     """Get all schedules for the current user"""
     user_id = user.get("uid")
     
-    # Query schedules for this user
-    schedules_ref = db.reference("/schedules")
-    all_schedules = schedules_ref.order_by_child("user_id").equal_to(user_id).get()
-    
-    if not all_schedules:
-        return {"schedules": []}
-    
-    # Convert to list format and sort by creation time
-    schedules_list = []
-    for schedule_id, schedule_data in all_schedules.items():
-        schedule_item = {
-            "id": schedule_id,
-            **schedule_data
-        }
-        schedules_list.append(schedule_item)
-    
-    # Sort by created_at descending (newest first)
-    schedules_list.sort(key=lambda x: x.get("created_at", 0), reverse=True)
-    
-    # Limit results
-    return {"schedules": schedules_list[:limit]}
+    try:
+        schedules_ref = db.reference("/schedules")
+        all_schedules = schedules_ref.get()
+        
+        if not all_schedules:
+            return {"schedules": []}
+        
+        schedules_list = []
+        for schedule_id, schedule_data in all_schedules.items():
+            if schedule_data.get("uid") == user_id:
+                schedule_item = {
+                    "id": schedule_id,
+                    **schedule_data
+                }
+                schedules_list.append(schedule_item)
+        
+        schedules_list.sort(key=lambda x: x.get("time_create", 0), reverse=True)
+        schedules_list = schedules_list[:limit]
+        
+        return {"schedules": schedules_list}
+        
+    except Exception as e:
+        logger.error(f"Error getting user schedules: {str(e)}")
+        raise HTTPException(500, "Internal server error")
 
 @router.delete("/{schedule_id}")
 async def delete_schedule(schedule_id: str, user=Depends(verify_firebase_token)):
-    """Delete a schedule"""
+    """Delete a schedule and cancel the scheduled job"""
     user_id = user.get("uid")
-    
-    # Get schedule info
-    schedule_ref = db.reference(f"/schedules/{schedule_id}")
-    schedule_data = schedule_ref.get()
-    
-    if not schedule_data:
-        raise HTTPException(404, "Schedule not found")
-    
-    # Verify ownership
-    if schedule_data.get("user_id") != user_id:
-        raise HTTPException(403, "You don't have permission to delete this schedule")
-    
-    # Check if schedule is still pending
-    if schedule_data.get("status") == "sent":
-        raise HTTPException(400, "Cannot delete a schedule that has already been sent")
-    
-    # Delete the schedule
-    schedule_ref.delete()
-    
-    return {
-        "status": "ok",
-        "message": "Schedule deleted successfully"
-    }
-
-@router.get("/device/{device_id}")
-async def get_device_schedules(device_id: str, user=Depends(verify_firebase_token)):
-    """Get all schedules for a specific device"""
-    user_id = user.get("uid")
-    
-    # Verify user has access to this device
-    device_ref = db.reference(f"/devices/{device_id}")
-    device_info = device_ref.get()
-    
-    if not device_info:
-        raise HTTPException(404, "Device not found")
-    
-    user_access = db.reference(f"/device_users/{device_id}/{user_id}").get()
-    legacy_user = device_info.get("user_id")
-    
-    if not user_access and legacy_user != user_id:
-        raise HTTPException(403, "You don't have permission to view schedules for this device")
-    
-    # Query schedules for this device
-    schedules_ref = db.reference("/schedules")
-    all_schedules = schedules_ref.order_by_child("device_id").equal_to(device_id).get()
-    
-    if not all_schedules:
-        return {"schedules": []}
-    
-    # Filter by user and convert to list format
-    schedules_list = []
-    for schedule_id, schedule_data in all_schedules.items():
-        if schedule_data.get("user_id") == user_id:
-            schedule_item = {
-                "id": schedule_id,
-                **schedule_data
-            }
-            schedules_list.append(schedule_item)
-    
-    # Sort by created_at descending
-    schedules_list.sort(key=lambda x: x.get("created_at", 0), reverse=True)
-    
-    return {"device_id": device_id, "schedules": schedules_list}
-
-@router.post("/test-mqtt/{device_id}")
-async def test_mqtt_notification(device_id: str, user=Depends(verify_firebase_token)):
-    """Test MQTT notification for a device (for development/testing)"""
-    user_id = user.get("uid")
-    
-    # Verify user has access to this device
-    device_ref = db.reference(f"/devices/{device_id}")
-    device_info = device_ref.get()
-    
-    if not device_info:
-        raise HTTPException(404, "Device not found")
-    
-    user_access = db.reference(f"/device_users/{device_id}/{user_id}").get()
-    legacy_user = device_info.get("user_id")
-    
-    if not user_access and legacy_user != user_id:
-        raise HTTPException(403, "You don't have permission to test notifications for this device")
-    
-    # Send test notification
-    test_message = f"Test notification from HealthSense system at {datetime.now().isoformat()}"
     
     try:
-        success = send_mqtt_notification(device_id, test_message)
+        schedule_ref = db.reference(f"/schedules/{schedule_id}")
+        schedule_data = schedule_ref.get()
+        
+        if not schedule_data:
+            raise HTTPException(404, "Schedule not found")
+        
+        if schedule_data.get("uid") != user_id:
+            raise HTTPException(403, "You don't have permission to delete this schedule")
+        
+        # Cancel the scheduled job if APScheduler is available
+        if APSCHEDULER_AVAILABLE and scheduler:
+            job_id = f"schedule_{schedule_id}"
+            try:
+                scheduler.remove_job(job_id)
+                logger.info(f"Cancelled scheduled job: {job_id}")
+            except Exception as e:
+                logger.warning(f"Could not cancel job {job_id}: {str(e)}")
+        
+        # Delete the schedule from database
+        schedule_ref.delete()
+        
         return {
-            "status": "ok" if success else "error",
-            "message": "Test notification sent successfully" if success else "Failed to send test notification",
-            "device_id": device_id
+            "status": "ok",
+            "message": "Schedule deleted successfully"
         }
+        
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(500, f"Failed to send test notification: {str(e)}")
+        logger.error(f"Error deleting schedule: {str(e)}")
+        raise HTTPException(500, f"Failed to delete schedule: {str(e)}")
 
 @router.get("/status")
 async def get_scheduler_status():
-    """Get the status of the background scheduler"""
-    global scheduler_running, scheduler_thread
-    
-    return {
-        "scheduler_running": scheduler_running,
-        "scheduler_thread_alive": scheduler_thread.is_alive() if scheduler_thread else False,
-        "mqtt_broker": MQTT_BROKER,
-        "mqtt_port": MQTT_PORT,
-        "mock_mode": MOCK_MQTT
-    }
-
-@router.get("/notifications/{device_id}")
-async def get_device_notifications(device_id: str, user=Depends(verify_firebase_token), limit: int = 50):
-    """Get MQTT notifications sent to a device (useful for testing)"""
-    user_id = user.get("uid")
-    
-    # Verify user has access to this device
-    device_ref = db.reference(f"/devices/{device_id}")
-    device_info = device_ref.get()
-    
-    if not device_info:
-        raise HTTPException(404, "Device not found")
-    
-    user_access = db.reference(f"/device_users/{device_id}/{user_id}").get()
-    legacy_user = device_info.get("user_id")
-    
-    if not user_access and legacy_user != user_id:
-        raise HTTPException(403, "You don't have permission to view notifications for this device")
-    
-    # Get notifications for this device
-    notifications_ref = db.reference("/mqtt_notifications")
-    all_notifications = notifications_ref.order_by_child("device_id").equal_to(device_id).get()
-    
-    if not all_notifications:
-        return {"notifications": []}
-    
-    # Convert to list and sort by timestamp
-    notifications_list = []
-    for notif_id, notif_data in all_notifications.items():
-        notification_item = {
-            "id": notif_id,
-            **notif_data
+    """Get scheduler status and active jobs"""
+    try:
+        active_jobs = []
+        if APSCHEDULER_AVAILABLE and scheduler and scheduler_started:
+            for job in scheduler.get_jobs():
+                active_jobs.append({
+                    "id": job.id,
+                    "name": job.name,
+                    "next_run_time": job.next_run_time.isoformat() if job.next_run_time else None,
+                    "func": str(job.func)
+                })
+        
+        return {
+            "apscheduler_available": APSCHEDULER_AVAILABLE,
+            "scheduler_running": scheduler_started,
+            "active_jobs": len(active_jobs),
+            "jobs": active_jobs,
+            "mqtt_config": {
+                "broker": MQTT_BROKER,
+                "port": MQTT_PORT,
+                "mock_mode": MOCK_MQTT
+            }
         }
-        notifications_list.append(notification_item)
-    
-    # Sort by timestamp descending (newest first)
-    notifications_list.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
-    
-    return {"device_id": device_id, "notifications": notifications_list[:limit]}
+        
+    except Exception as e:
+        logger.error(f"Error getting scheduler status: {str(e)}")
+        raise HTTPException(500, f"Failed to get status: {str(e)}")
+
+@router.post("/test/{device_id}")
+async def test_mqtt_notification(device_id: str, user=Depends(verify_firebase_token)):
+    """Test MQTT notification immediately"""
+    try:
+        uid = user.get("uid")
+        
+        # Check device access
+        device_users_ref = db.reference(f"/device_users/{device_id}")
+        device_users = device_users_ref.get()
+        
+        if not device_users or uid not in device_users:
+            raise HTTPException(403, "You don't have access to this device")
+        
+        # Send test notification
+        success = send_mqtt_notification_sync(device_id, uid, "test")
+        
+        return {
+            "status": "ok" if success else "failed",
+            "message": f"Test notification {'sent' if success else 'failed'}",
+            "topic": device_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error sending test notification: {str(e)}")
+        raise HTTPException(500, f"Failed to send test: {str(e)}")
+
+# Initialize scheduler on module load
+if APSCHEDULER_AVAILABLE:
+    start_scheduler()
