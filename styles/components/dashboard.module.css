@@ -226,6 +226,38 @@
   opacity: 1;
 }
 
+.btnSchedule {
+  background: linear-gradient(45deg, #28a745, #20c997);
+  color: white;
+  position: relative;
+}
+
+.btnSchedule:hover {
+  background: linear-gradient(45deg, #218838, #1ea97c);
+}
+
+.btnSchedule::after {
+  content: 'Lập lịch thông báo';
+  position: absolute;
+  bottom: -25px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+  z-index: 1000;
+}
+
+.btnSchedule:hover::after {
+  opacity: 1;
+}
+
 .btnAi {
   background: linear-gradient(45deg, #6f42c1, #e83e8c);
   color: white;
