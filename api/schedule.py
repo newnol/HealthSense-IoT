@@ -30,7 +30,10 @@ logger = logging.getLogger(__name__)
 MQTT_BROKER = "70030b8b8dc741c79d6ab7ffa586f461.s1.eu.hivemq.cloud"
 MQTT_PORT = 8883
 MQTT_USERNAME = "phamngocthai"
-MQTT_PASSWORD = "Thai2005"
+MQTT_BROKER = os.environ.get("MQTT_BROKER")
+MQTT_PORT = int(os.environ.get("MQTT_PORT", "8883"))
+MQTT_USERNAME = os.environ.get("MQTT_USERNAME")
+MQTT_PASSWORD = os.environ.get("MQTT_PASSWORD")
 # Set MOCK_MQTT from environment variable (default: False)
 MOCK_MQTT = os.getenv("MOCK_MQTT", "False").lower() in ("true", "1", "yes")
 
