@@ -14,7 +14,13 @@ Example:
 import os
 import sys
 import argparse
+from pathlib import Path
+from dotenv import load_dotenv
 from firebase_admin import credentials, initialize_app, auth
+
+# Load environment variables
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+load_dotenv(PROJECT_ROOT / ".env.local")
 
 def main():
     parser = argparse.ArgumentParser(description='Set or remove admin claims for a Firebase user')

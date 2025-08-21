@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from firebase_admin import db, auth as firebase_auth
 from .auth import verify_admin
 from typing import List, Dict, Optional
+import time
 
 router = APIRouter(prefix="/api/admin")
 
@@ -27,10 +28,15 @@ async def get_all_users(admin = Depends(verify_admin), limit: int = 100, page_to
                 "admin": user.custom_claims.get('admin', False) if user.custom_claims else False
             }
             
-            # Get device count for user
+            # Get device count for user - avoid index error by getting all devices first
             devices_ref = db.reference("/devices")
-            user_devices = devices_ref.order_by_child("user_id").equal_to(user.uid).get()
-            user_data["deviceCount"] = len(user_devices) if user_devices else 0
+            all_devices = devices_ref.get()
+            user_device_count = 0
+            if all_devices:
+                for device_id, device_data in all_devices.items():
+                    if device_data.get("user_id") == user.uid:
+                        user_device_count += 1
+            user_data["deviceCount"] = user_device_count
             
             users_list.append(user_data)
         
@@ -76,21 +82,23 @@ async def delete_user(user_id: str, admin = Depends(verify_admin)):
         # Delete user from Firebase Auth
         firebase_auth.delete_user(user_id)
         
-        # Clean up user's devices
+        # Clean up user's devices - avoid index error
         devices_ref = db.reference("/devices")
-        user_devices = devices_ref.order_by_child("user_id").equal_to(user_id).get()
+        all_devices = devices_ref.get()
         
-        if user_devices:
-            for device_id in user_devices.keys():
-                db.reference(f"/devices/{device_id}").delete()
+        if all_devices:
+            for device_id, device_data in all_devices.items():
+                if device_data.get("user_id") == user_id:
+                    db.reference(f"/devices/{device_id}").delete()
         
-        # Clean up user's records
+        # Clean up user's records - avoid index error
         records_ref = db.reference("/records")
-        user_records = records_ref.order_by_child("userId").equal_to(user_id).get()
+        all_records = records_ref.get()
         
-        if user_records:
-            for record_id in user_records.keys():
-                db.reference(f"/records/{record_id}").delete()
+        if all_records:
+            for record_id, record_data in all_records.items():
+                if record_data.get("userId") == user_id:
+                    db.reference(f"/records/{record_id}").delete()
         
         # Clean up user's profile
         db.reference(f"/user_profiles/{user_id}").delete()
@@ -128,18 +136,24 @@ async def get_all_devices(admin = Depends(verify_admin)):
                     device_info["userEmail"] = "Unknown"
                     device_info["userDisplayName"] = "Deleted User"
             
-            # Get last activity from records
+            # Get last activity from records - avoid index error
             records_ref = db.reference("/records")
-            last_record = records_ref.order_by_child("device_id").equal_to(device_id).limit_to_last(1).get()
+            all_records = records_ref.get()
+            latest_timestamp = None
             
-            if last_record:
-                last_record_data = list(last_record.values())[0]
-                device_info["lastActive"] = last_record_data.get("ts")
+            if all_records:
+                for record_id, record_data in all_records.items():
+                    if record_data.get("device_id") == device_id:
+                        ts = record_data.get("ts")
+                        if ts and (latest_timestamp is None or ts > latest_timestamp):
+                            latest_timestamp = ts
+            
+            device_info["lastActive"] = latest_timestamp
             
             devices_list.append(device_info)
         
-        # Sort by registration date descending
-        devices_list.sort(key=lambda x: x.get("registeredAt", 0), reverse=True)
+        # Sort by registration date descending - handle None values
+        devices_list.sort(key=lambda x: x.get("registeredAt") or 0, reverse=True)
         
         return {
             "devices": devices_list,
@@ -191,26 +205,34 @@ async def get_user_devices(user_id: str, admin = Depends(verify_admin)):
     """Get all devices for a specific user"""
     try:
         devices_ref = db.reference("/devices")
-        user_devices = devices_ref.order_by_child("user_id").equal_to(user_id).get()
+        all_devices = devices_ref.get()
         
-        if not user_devices:
+        if not all_devices:
             return {"devices": [], "total": 0}
         
         devices_list = []
-        for device_id, device_data in user_devices.items():
+        for device_id, device_data in all_devices.items():
+            if device_data.get("user_id") != user_id:
+                continue
             device_info = {
                 "deviceId": device_id,
                 "registeredAt": device_data.get("registered_at"),
                 "lastActive": None
             }
             
-            # Get last activity
+            # Get last activity - avoid index error
             records_ref = db.reference("/records")
-            last_record = records_ref.order_by_child("device_id").equal_to(device_id).limit_to_last(1).get()
+            all_records = records_ref.get()
+            latest_timestamp = None
             
-            if last_record:
-                last_record_data = list(last_record.values())[0]
-                device_info["lastActive"] = last_record_data.get("ts")
+            if all_records:
+                for record_id, record_data in all_records.items():
+                    if record_data.get("device_id") == device_id:
+                        ts = record_data.get("ts")
+                        if ts and (latest_timestamp is None or ts > latest_timestamp):
+                            latest_timestamp = ts
+            
+            device_info["lastActive"] = latest_timestamp
             
             devices_list.append(device_info)
         
@@ -236,16 +258,16 @@ async def get_admin_stats(admin = Depends(verify_admin)):
         devices = devices_ref.get()
         device_count = len(devices) if devices else 0
         
-        # Get record count
+        # Get record count - approximate count
         records_ref = db.reference("/records")
-        records = records_ref.limit_to_last(1).get()
-        # This is approximate, as counting all records would be expensive
+        records = records_ref.get()
+        record_count = len(records) if records else 0
         
         return {
             "userCount": user_count,
             "deviceCount": device_count,
-            "totalRecords": "Many", # You might want to maintain a counter separately
-            "timestamp": db.ServerValue.TIMESTAMP
+            "totalRecords": record_count,
+            "timestamp": int(time.time() * 1000)  # Current timestamp in milliseconds
         }
     except Exception as e:
         raise HTTPException(500, f"Failed to fetch stats: {str(e)}")
