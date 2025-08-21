@@ -97,7 +97,7 @@ async def update_profile(profile_update: ProfileUpdate, user = Depends(verify_fi
         
         # Prepare update data
         update_data = {}
-        for field, value in profile_update.dict(exclude_unset=True).items():
+        for field, value in profile_update.model_dump(exclude_unset=True).items():
             if value is not None:
                 update_data[field] = value
         

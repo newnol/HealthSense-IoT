@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useAdmin } from '../contexts/AdminContext'
 import { useRouter } from 'next/router'
@@ -10,7 +10,7 @@ import DashboardHeader from '../components/Dashboard/DashboardHeader'
 import ChartsSection from '../components/Dashboard/ChartsSection'
 import HealthInsights from '../components/Dashboard/HealthInsights'
 import StatsCards from '../components/StatsCards'
-import TimeRangeControls from '../components/TimeRangeControls'
+import RangeDatePicker from '../components/RangeDatePicker'
 import AnimatedElement from '../components/AnimatedElement'
 
 // Styles
@@ -20,7 +20,29 @@ export default function Dashboard() {
   const { user, loading, logout } = useAuth()
   const { isAdmin } = useAdmin()
   const router = useRouter()
-  const [range, setRange] = useState(24) // hours
+  const [range, setRange] = useState(null) // hours quick preset; now unused
+  const [dateRange, setDateRange] = useState({ start: '', end: '' })
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const pickerRef = useRef(null)
+
+  // Close picker on outside click / ESC
+  useEffect(() => {
+    if (!pickerOpen) return
+    const onDown = (e) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target)) {
+        setPickerOpen(false)
+      }
+    }
+    const onKey = (e) => {
+      if (e.key === 'Escape') setPickerOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [pickerOpen])
   const { records, loading: dataLoading } = useRecords({ limit: 1000, pollMs: 15000 })
   const { animate } = useAnime()
 
@@ -79,18 +101,34 @@ export default function Dashboard() {
       <div className={styles.container}>
         {/* Stats Cards */}
         <AnimatedElement animation="fadeInUp" delay={100}>
-          <StatsCards records={records} rangeHours={range} loading={dataLoading} />
+          <StatsCards records={records} rangeHours={range} dateRange={dateRange} loading={dataLoading} />
         </AnimatedElement>
 
         {/* Time Range Selector */}
-        <AnimatedElement animation="fadeInUp" delay={200}>
-          <TimeRangeControls range={range} setRange={setRange} />
+        <AnimatedElement animation="fadeInUp" delay={200} className={styles.rangePickerSection}>
+          <div className={styles.rangePickerLayer} style={{ position: 'relative', display: 'inline-block' }} ref={pickerRef}>
+            <button
+              onClick={() => setPickerOpen((o) => !o)}
+              className={styles.rangeToggleBtn}
+              aria-expanded={pickerOpen}
+            >
+              {dateRange?.start && dateRange?.end
+                ? `${dateRange.start} → ${dateRange.end}`
+                : 'Chọn khoảng thời gian'}
+            </button>
+            {pickerOpen && (
+              <div className={styles.rangePopover} role="dialog" aria-label="Chọn khoảng thời gian">
+                <RangeDatePicker value={dateRange} onChange={setDateRange} onClose={() => setPickerOpen(false)} />
+              </div>
+            )}
+          </div>
         </AnimatedElement>
 
         {/* Charts Section */}
         <ChartsSection 
           records={records} 
           rangeHours={range} 
+          dateRange={dateRange}
           dataLoading={dataLoading} 
         />
 
@@ -98,6 +136,7 @@ export default function Dashboard() {
         <HealthInsights 
           records={records} 
           rangeHours={range} 
+          dateRange={dateRange}
         />
       </div>
     </div>

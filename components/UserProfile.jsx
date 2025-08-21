@@ -314,12 +314,13 @@ export default function UserProfile() {
 
       <style jsx>{`
         .profile-container {
-          max-width: 600px;
+          max-width: 760px;
           margin: 2rem auto;
           padding: 2rem;
-          background: white;
-          border-radius: 12px;
-          box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+          background: #ffffff;
+          border-radius: 16px;
+          border: 1px solid #eee;
+          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
         }
 
         .profile-header {
@@ -363,6 +364,7 @@ export default function UserProfile() {
 
         .profile-view {
           display: grid;
+          grid-template-columns: 1fr;
           gap: 1rem;
         }
 
@@ -370,18 +372,26 @@ export default function UserProfile() {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          padding: 1rem;
-          background: #f8f9fa;
-          border-radius: 8px;
+          padding: 1rem 1.25rem;
+          background: #f9fafb;
+          border-radius: 10px;
+          border: 1px solid #eee;
+          transition: background 0.2s ease, transform 0.05s ease-in;
+        }
+
+        .profile-item:hover {
+          background: #f3f4f6;
         }
 
         .profile-item label {
           font-weight: 600;
-          color: #555;
+          color: #6b7280;
+          letter-spacing: 0.2px;
         }
 
         .profile-item span {
-          color: #333;
+          color: #111827;
+          font-weight: 600;
         }
 
         .profile-form .form-group {
@@ -400,8 +410,9 @@ export default function UserProfile() {
           width: 100%;
           padding: 0.75rem;
           border: 1px solid #ddd;
-          border-radius: 6px;
+          border-radius: 8px;
           font-size: 1rem;
+          background: #fff;
         }
 
         .profile-form input:focus,
@@ -434,7 +445,7 @@ export default function UserProfile() {
         }
 
         .btn-primary:hover {
-          background: #0051cc;
+          background: #0059d6;
         }
 
         .btn-secondary {
@@ -455,6 +466,12 @@ export default function UserProfile() {
 
         .btn-edit:hover {
           background: #218838;
+        }
+
+        @media (min-width: 768px) {
+          .profile-view {
+            grid-template-columns: 1fr 1fr;
+          }
         }
       `}</style>
     </div>

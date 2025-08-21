@@ -87,6 +87,115 @@
   gap: 1.5rem;
 }
 
+/* User avatar dropdown */
+.userMenuWrapper {
+  position: relative;
+}
+
+.avatarButton {
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.userMenu {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  min-width: 260px;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px;
+  box-shadow: 0 12px 30px rgba(0,0,0,0.15);
+  padding: 0.5rem;
+  z-index: 1000;
+  animation: menuPop 160ms ease-out;
+}
+
+@keyframes menuPop {
+  0% { transform: translateY(-6px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+.userMenuHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.5rem 0.75rem 0.5rem;
+}
+
+.userMenuAvatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(45deg, #667eea, #764ba2);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+}
+
+.userMenuDetails {
+  display: flex;
+  flex-direction: column;
+}
+
+.userMenuWelcome {
+  font-size: 0.8rem;
+  color: #666;
+}
+
+.userMenuEmail {
+  font-size: 0.95rem;
+  color: #333;
+  font-weight: 600;
+}
+
+.menuDivider {
+  height: 1px;
+  background: rgba(0, 0, 0, 0.08);
+  margin: 0.25rem 0.5rem;
+}
+
+.userMenuItem {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: transparent;
+  border: none;
+  padding: 0.6rem 0.5rem;
+  border-radius: 8px;
+  cursor: pointer;
+  color: #333;
+  transition: background 0.2s ease, transform 0.08s ease;
+}
+
+.userMenuItem:hover {
+  background: rgba(102, 126, 234, 0.08);
+}
+
+.userMenuItem:active {
+  transform: scale(0.98);
+}
+
+.menuIcon {
+  width: 1.25rem;
+  text-align: center;
+}
+
+.menuLabel {
+  flex: 1;
+  text-align: left;
+}
+
+.menuLogout {
+  color: #b91c1c;
+}
+
 .userWelcome {
   display: flex;
   align-items: center;
@@ -698,6 +807,42 @@
   color: #333;
   margin-bottom: 0.5rem;
   font-size: 1.5rem;
+}
+
+/* Range Picker Popover */
+.rangeToggleBtn {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 0.6rem 1rem;
+  font-weight: 600;
+  color: #374151;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+.rangeToggleBtn:hover {
+  background: #f9fafb;
+}
+
+.rangePopover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 10000; /* ensure calendar overlays charts/cards */
+  animation: menuPop 160ms ease-out;
+}
+
+.rangePickerLayer {
+  position: relative;
+  z-index: 15000; /* raise whole picker stacking context above charts */
+}
+
+/* Elevate the entire time range section above later animated sections
+   to avoid stacking-context issues caused by transforms */
+.rangePickerSection {
+  position: relative;
+  z-index: 20000;
 }
 
 /* Responsive */

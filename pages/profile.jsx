@@ -34,13 +34,14 @@ export default function ProfilePage() {
   return (
     <div>
       <div className="profile-navigation">
+        <h1>Hồ sơ cá nhân</h1>
         <button 
           onClick={() => router.push('/dashboard')} 
           className="btn-back"
+          aria-label="Về Dashboard"
         >
           ← Về Dashboard
         </button>
-        <h1>Hồ sơ cá nhân</h1>
       </div>
       <UserProfile />
       
@@ -48,22 +49,27 @@ export default function ProfilePage() {
         .profile-navigation {
           display: flex;
           align-items: center;
+          justify-content: space-between;
           gap: 1rem;
           padding: 1rem 2rem;
           background: #f8f9fa;
           border-bottom: 1px solid #dee2e6;
           margin-bottom: 0;
+          position: sticky;
+          top: 0;
+          z-index: 5;
+          backdrop-filter: saturate(180%) blur(6px);
         }
         
         .btn-back {
           background: #6c757d;
-          color: white;
+          color: #fff;
           border: none;
           padding: 0.5rem 1rem;
           border-radius: 6px;
           cursor: pointer;
           font-weight: 500;
-          transition: background 0.3s;
+          transition: background 0.3s, transform 0.05s ease-in;
           display: flex;
           align-items: center;
           gap: 0.5rem;
@@ -72,11 +78,15 @@ export default function ProfilePage() {
         .btn-back:hover {
           background: #5a6268;
         }
+        .btn-back:active {
+          transform: translateY(1px);
+        }
         
         .profile-navigation h1 {
           margin: 0;
           color: #333;
           font-size: 1.5rem;
+          font-weight: 600;
         }
       `}</style>
     </div>

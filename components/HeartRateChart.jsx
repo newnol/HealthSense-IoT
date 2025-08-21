@@ -15,11 +15,29 @@ import 'chartjs-adapter-date-fns'
 
 ChartJS.register(TimeScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler)
 
-export default function HeartRateChart({ records, rangeHours }) {
+export default function HeartRateChart({ records, rangeHours, dateRange }) {
   const toMs = (ts) => (!ts ? 0 : ts < 1e12 ? ts * 1000 : ts)
   const nowMs = Date.now()
-  const cutoffMs = nowMs - rangeHours * 3600 * 1000
-  const filtered = (records || []).filter((r) => toMs(r.ts) >= cutoffMs)
+  const cutoffMs = rangeHours != null ? nowMs - rangeHours * 3600 * 1000 : null
+  const startMs = dateRange?.start ? new Date(`${dateRange.start}T00:00:00`).getTime() : null
+  const endMs = dateRange?.end ? new Date(`${dateRange.end}T23:59:59.999`).getTime() : null
+  const filtered = (records || []).filter((r) => {
+    const t = toMs(r.ts)
+    if (startMs != null && endMs != null) return t >= startMs && t <= endMs
+    if (cutoffMs != null) return t >= cutoffMs
+    return true
+  })
+
+  // Tính toán các giá trị thống kê nhịp tim
+  const heartRateValues = filtered
+    .map((r) => (typeof r.heart_rate === 'number' ? r.heart_rate : r.bpm))
+    .filter((v) => typeof v === 'number' && !isNaN(v))
+  const minHeart = heartRateValues.length ? Math.min(...heartRateValues) : '-'
+  const maxHeart = heartRateValues.length ? Math.max(...heartRateValues) : '-'
+  const avgHeart = heartRateValues.length
+    ? heartRateValues.reduce((sum, v) => sum + v, 0) / heartRateValues.length
+    : '-'
+  const lastHeart = heartRateValues.length ? heartRateValues[heartRateValues.length - 1] : '-'
 
   const labels = filtered.map((r) => new Date(toMs(r.ts)))
 
@@ -53,7 +71,21 @@ export default function HeartRateChart({ records, rangeHours }) {
     scales: {
       x: {
         type: 'time',
-        time: { unit: rangeHours <= 24 ? 'hour' : rangeHours <= 168 ? 'day' : 'week' },
+        time: {
+          unit: (() => {
+            if (dateRange?.start && dateRange?.end) {
+              const span = (endMs - startMs) / (1000 * 3600)
+              if (span <= 1) return 'minute'
+              if (span <= 24) return 'hour'
+              if (span <= 24 * 7) return 'day'
+              return 'week'
+            }
+            if (rangeHours <= 1) return 'minute'
+            if (rangeHours <= 24) return 'hour'
+            if (rangeHours <= 168) return 'day'
+            return 'week'
+          })()
+        },
         title: { display: true, text: 'Thời gian' },
         grid: { display: false }
       },
@@ -84,7 +116,9 @@ export default function HeartRateChart({ records, rangeHours }) {
     <div className="chart-container">
       <div className="chart-header">
         <h3 className="chart-title">💓 Nhịp tim (BPM)</h3>
-        <div className="chart-meta">Min/Max/Avg/Last</div>
+        <div className="chart-meta">
+          Min: {minHeart}{minHeart !== '-' ? ' BPM' : ''} / Max: {maxHeart}{maxHeart !== '-' ? ' BPM' : ''} / Avg: {avgHeart !== '-' ? avgHeart.toFixed(1) + ' BPM' : '-'} / Last: {lastHeart}{lastHeart !== '-' ? ' BPM' : ''}
+        </div>
       </div>
       {filtered.length > 0 ? (
         <div style={{ height: 360 }}>

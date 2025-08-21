@@ -33,8 +33,9 @@ load_dotenv(PROJECT_ROOT / ".env.local")
 db_url = os.environ.get("FIREBASE_DB_URL")
 if db_url:
     db_url = db_url.rstrip("/")
-if not db_url:
-    raise RuntimeError("Missing required environment variable: FIREBASE_DB_URL")
+else:
+    import logging
+    logging.warning("FIREBASE_DB_URL not set; Firebase features disabled.")
 
 private_key = os.environ.get("FIREBASE_PRIVATE_KEY")
 if private_key:
@@ -67,11 +68,18 @@ required_keys = [
     "client_x509_cert_url",
 ]
 missing = [k for k in required_keys if not service_account_info.get(k)]
-if missing:
-    raise RuntimeError("Missing Firebase service account env vars: " + ", ".join(missing))
-
-cred = credentials.Certificate(service_account_info)  # type: ignore[arg-type]
-initialize_app(cred, {"databaseURL": db_url})
+firebase_initialized = False
+if db_url and not missing:
+    try:
+        cred = credentials.Certificate(service_account_info)  # type: ignore[arg-type]
+        initialize_app(cred, {"databaseURL": db_url})
+        firebase_initialized = True
+    except Exception as e:
+        import logging
+        logging.warning(f"Firebase initialization failed: {e}")
+else:
+    import logging
+    logging.warning("Firebase service account not fully configured; skipping Firebase init.")
 
 app = FastAPI()
 app.add_middleware(
