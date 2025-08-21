@@ -1,8 +1,16 @@
-// pages/admin.jsx
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
 import { useAuth } from '../contexts/AuthContext'
 import { useAdmin } from '../contexts/AdminContext'
+import { useAnime } from '../hooks/useAnime.jsx'
+
+// Import new admin components
+import AdminHeader from '../components/Admin/AdminHeader'
+import StatsDashboard from '../components/Admin/StatsDashboard'
+import UsersManagement from '../components/Admin/UsersManagement'
+import DevicesManagement from '../components/Admin/DevicesManagement'
+
+import styles from '../styles/components/admin.module.css'
 
 export default function AdminDashboard() {
   const router = useRouter()
@@ -20,14 +28,14 @@ export default function AdminDashboard() {
     deleteUser,
     deleteDevice,
     setAdminClaim,
-    getUserDevices
+    getUserDevices,
+    getUserProfile
   } = useAdmin()
+  const { animate } = useAnime()
 
-  const [activeTab, setActiveTab] = useState('users')
+  const [activeTab, setActiveTab] = useState('dashboard')
   const [selectedUser, setSelectedUser] = useState(null)
   const [userDevices, setUserDevices] = useState([])
-  const [editingUser, setEditingUser] = useState(null)
-  const [searchQuery, setSearchQuery] = useState('')
 
   useEffect(() => {
     if (!loading && !isAdmin) {
@@ -43,6 +51,18 @@ export default function AdminDashboard() {
     }
   }, [isAdmin])
 
+  // Animate stats when data loads
+  useEffect(() => {
+    if (stats && !loading) {
+      animate(`.${styles.statValue}`, {
+        innerHTML: [0, (el) => el.getAttribute('data-value') || el.textContent],
+        duration: 2000,
+        easing: 'easeOutExpo',
+        round: 1
+      })
+    }
+  }, [stats, loading, animate])
+
   // Fetch devices for selected user
   const handleViewUserDevices = async (userId) => {
     try {
@@ -51,385 +71,318 @@ export default function AdminDashboard() {
       setSelectedUser(users.find(u => u.uid === userId))
     } catch (error) {
       console.error('Error fetching user devices:', error)
+      alert('Lỗi khi tải danh sách thiết bị: ' + error.message)
     }
   }
 
-  // Handle user edit
-  const handleEditUser = (user) => {
-    setEditingUser({
-      uid: user.uid,
-      email: user.email,
-      displayName: user.displayName || '',
-      disabled: user.disabled,
-      admin: user.admin
-    })
-  }
-
-  // Save user changes
-  const handleSaveUser = async () => {
-    try {
-      const updates = {
-        email: editingUser.email,
-        displayName: editingUser.displayName,
-        disabled: editingUser.disabled
-      }
-      
-      await updateUser(editingUser.uid, updates)
-      
-      // Update admin claim if changed
-      if (editingUser.admin !== users.find(u => u.uid === editingUser.uid).admin) {
-        await setAdminClaim(editingUser.uid, editingUser.admin)
-      }
-      
-      setEditingUser(null)
-    } catch (error) {
-      alert('Error updating user: ' + error.message)
-    }
-  }
-
-  // Handle user deletion
+  // Handle user deletion with confirmation
   const handleDeleteUser = async (userId) => {
-    if (confirm('Are you sure you want to delete this user and all their data?')) {
+    const userToDelete = users.find(u => u.uid === userId)
+    if (!userToDelete) return
+
+    const confirmMessage = `Bạn có chắc muốn xóa người dùng "${userToDelete.email}"?\n\nHành động này sẽ xóa:\n- Tài khoản người dùng\n- Tất cả thiết bị của họ\n- Tất cả dữ liệu liên quan\n\nKhông thể hoàn tác!`
+    
+    if (confirm(confirmMessage)) {
       try {
         await deleteUser(userId)
+        alert('Đã xóa người dùng thành công')
       } catch (error) {
-        alert('Error deleting user: ' + error.message)
+        console.error('Error deleting user:', error)
+        alert('Lỗi khi xóa người dùng: ' + error.message)
       }
     }
   }
 
-  // Handle device deletion
+  // Handle device deletion with confirmation
   const handleDeleteDevice = async (deviceId) => {
-    if (confirm('Are you sure you want to delete this device?')) {
+    const deviceToDelete = devices.find(d => d.deviceId === deviceId)
+    if (!deviceToDelete) return
+
+    const confirmMessage = `Bạn có chắc muốn xóa thiết bị "${deviceId}"?\n\nHành động này sẽ xóa:\n- Thiết bị khỏi hệ thống\n- Tất cả dữ liệu của thiết bị\n- Kết nối với người dùng\n\nKhông thể hoàn tác!`
+    
+    if (confirm(confirmMessage)) {
       try {
         await deleteDevice(deviceId)
+        alert('Đã xóa thiết bị thành công')
       } catch (error) {
-        alert('Error deleting device: ' + error.message)
+        console.error('Error deleting device:', error)
+        alert('Lỗi khi xóa thiết bị: ' + error.message)
       }
     }
   }
-
-  // Filter users based on search
-  const filteredUsers = users.filter(user => 
-    user.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    user.displayName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    user.uid.toLowerCase().includes(searchQuery.toLowerCase())
-  )
-
-  // Filter devices based on search
-  const filteredDevices = devices.filter(device =>
-    device.deviceId?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    device.userEmail?.toLowerCase().includes(searchQuery.toLowerCase())
-  )
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-lg text-gray-600">Loading...</div>
+      <div className={styles.loadingContainer}>
+        <div className={styles.loadingSpinner}>
+          <div className={styles.spinner}></div>
+          <div className={styles.loadingText}>Đang tải Admin Dashboard...</div>
+        </div>
       </div>
     )
   }
 
   if (!isAdmin) {
-    return null
+    return (
+      <div className={styles.accessDenied}>
+        <div className={styles.accessDeniedIcon}>🚫</div>
+        <h2>Truy cập bị từ chối</h2>
+        <p>Bạn cần quyền Admin để truy cập trang này</p>
+        <button onClick={() => router.push('/dashboard')} className={styles.btnBack}>
+          ← Quay lại Dashboard
+        </button>
+      </div>
+    )
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white shadow">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-6">
-            <h1 className="text-3xl font-bold text-gray-900">Admin Dashboard</h1>
-            <button
-              onClick={() => router.push('/dashboard')}
-              className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700"
-            >
-              Back to Dashboard
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Stats Overview */}
-      {stats && (
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-8">
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
-            <div className="bg-white shadow rounded-lg p-6">
-              <h3 className="text-lg font-medium text-gray-900">Total Users</h3>
-              <p className="mt-2 text-3xl font-bold text-blue-600">{stats.userCount}</p>
-            </div>
-            <div className="bg-white shadow rounded-lg p-6">
-              <h3 className="text-lg font-medium text-gray-900">Total Devices</h3>
-              <p className="mt-2 text-3xl font-bold text-green-600">{stats.deviceCount}</p>
-            </div>
-            <div className="bg-white shadow rounded-lg p-6">
-              <h3 className="text-lg font-medium text-gray-900">Total Records</h3>
-              <p className="mt-2 text-3xl font-bold text-purple-600">{stats.totalRecords}</p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Tabs */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-8">
-        <div className="border-b border-gray-200">
-          <nav className="-mb-px flex space-x-8">
-            <button
-              onClick={() => setActiveTab('users')}
-              className={`${
-                activeTab === 'users'
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
-            >
-              Users ({users.length})
-            </button>
-            <button
-              onClick={() => setActiveTab('devices')}
-              className={`${
-                activeTab === 'devices'
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
-            >
-              Devices ({devices.length})
-            </button>
-          </nav>
-        </div>
-
-        {/* Search Bar */}
-        <div className="mt-4">
-          <input
-            type="text"
-            placeholder={`Search ${activeTab}...`}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-          />
-        </div>
-
-        {/* Content */}
-        <div className="mt-6">
-          {activeTab === 'users' && (
-            <div className="bg-white shadow overflow-hidden sm:rounded-md">
-              <ul className="divide-y divide-gray-200">
-                {filteredUsers.map((user) => (
-                  <li key={user.uid}>
-                    {editingUser?.uid === user.uid ? (
-                      <div className="px-4 py-4 sm:px-6 bg-gray-50">
-                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700">Email</label>
-                            <input
-                              type="email"
-                              value={editingUser.email}
-                              onChange={(e) => setEditingUser({...editingUser, email: e.target.value})}
-                              className="mt-1 block w-full border-gray-300 rounded-md shadow-sm"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-sm font-medium text-gray-700">Display Name</label>
-                            <input
-                              type="text"
-                              value={editingUser.displayName}
-                              onChange={(e) => setEditingUser({...editingUser, displayName: e.target.value})}
-                              className="mt-1 block w-full border-gray-300 rounded-md shadow-sm"
-                            />
-                          </div>
-                          <div className="flex items-center">
-                            <input
-                              type="checkbox"
-                              checked={editingUser.disabled}
-                              onChange={(e) => setEditingUser({...editingUser, disabled: e.target.checked})}
-                              className="h-4 w-4 text-blue-600 border-gray-300 rounded"
-                            />
-                            <label className="ml-2 block text-sm text-gray-900">Account Disabled</label>
-                          </div>
-                          <div className="flex items-center">
-                            <input
-                              type="checkbox"
-                              checked={editingUser.admin}
-                              onChange={(e) => setEditingUser({...editingUser, admin: e.target.checked})}
-                              className="h-4 w-4 text-blue-600 border-gray-300 rounded"
-                            />
-                            <label className="ml-2 block text-sm text-gray-900">Admin Privileges</label>
-                          </div>
-                        </div>
-                        <div className="mt-4 flex space-x-2">
-                          <button
-                            onClick={handleSaveUser}
-                            className="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700"
-                          >
-                            Save
-                          </button>
-                          <button
-                            onClick={() => setEditingUser(null)}
-                            className="px-3 py-1 bg-gray-600 text-white text-sm rounded hover:bg-gray-700"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="px-4 py-4 sm:px-6 flex items-center justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <p className="text-sm font-medium text-gray-900 truncate">
-                                {user.email}
-                                {user.admin && (
-                                  <span className="ml-2 px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-purple-100 text-purple-800">
-                                    Admin
-                                  </span>
-                                )}
-                                {user.disabled && (
-                                  <span className="ml-2 px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">
-                                    Disabled
-                                  </span>
-                                )}
-                              </p>
-                              <p className="text-sm text-gray-500">
-                                {user.displayName || 'No display name'} • {user.deviceCount} devices
-                              </p>
-                              <p className="text-xs text-gray-400">
-                                UID: {user.uid}
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="ml-4 flex items-center space-x-2">
-                          <button
-                            onClick={() => handleViewUserDevices(user.uid)}
-                            className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
-                          >
-                            View Devices
-                          </button>
-                          <button
-                            onClick={() => handleEditUser(user)}
-                            className="px-3 py-1 bg-yellow-600 text-white text-sm rounded hover:bg-yellow-700"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => handleDeleteUser(user.uid)}
-                            className="px-3 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700"
-                            disabled={user.uid === user?.uid} // Prevent self-deletion
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </div>
+    <div className={styles.adminDashboard}>
+      <AdminHeader user={user} stats={stats} />
+      
+      <div className={styles.mainContent}>
+        <div className={styles.container}>
+          {/* Navigation Tabs */}
+          <div className={styles.tabsContainer}>
+            <div className={styles.tabs}>
+              {[
+                { key: 'dashboard', label: 'Dashboard', icon: '📊' },
+                { key: 'users', label: 'Người dùng', icon: '👥', count: users?.length },
+                { key: 'devices', label: 'Thiết bị', icon: '📱', count: devices?.length },
+                { key: 'settings', label: 'Cài đặt', icon: '⚙️' }
+              ].map((tab) => (
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveTab(tab.key)}
+                  className={`${styles.tab} ${activeTab === tab.key ? styles.active : ''}`}
+                >
+                  <span className={styles.tabIcon}>{tab.icon}</span>
+                  <span className={styles.tabLabel}>
+                    {tab.label}
+                    {tab.count !== undefined && (
+                      <span className={styles.tabCount}>({tab.count})</span>
                     )}
-                  </li>
-                ))}
-              </ul>
+                  </span>
+                </button>
+              ))}
             </div>
-          )}
+          </div>
 
-          {activeTab === 'devices' && (
-            <div className="bg-white shadow overflow-hidden sm:rounded-md">
-              <ul className="divide-y divide-gray-200">
-                {filteredDevices.map((device) => (
-                  <li key={device.deviceId}>
-                    <div className="px-4 py-4 sm:px-6 flex items-center justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <p className="text-sm font-medium text-gray-900">
-                              Device ID: {device.deviceId}
-                            </p>
-                            <p className="text-sm text-gray-500">
-                              Owner: {device.userEmail || 'Unknown'} ({device.userDisplayName || 'No name'})
-                            </p>
-                            <p className="text-xs text-gray-400">
-                              Registered: {new Date(device.registeredAt).toLocaleString()}
-                              {device.lastActive && (
-                                <span> • Last active: {new Date(device.lastActive).toLocaleString()}</span>
-                              )}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="ml-4">
-                        <button
-                          onClick={() => handleDeleteDevice(device.deviceId)}
-                          className="px-3 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700"
-                        >
-                          Delete
-                        </button>
-                      </div>
+          {/* Tab Content */}
+          <div className={styles.tabContent}>
+            {activeTab === 'dashboard' && (
+              <StatsDashboard 
+                stats={stats} 
+                users={users} 
+                devices={devices} 
+              />
+            )}
+            
+            {activeTab === 'users' && (
+              <UsersManagement
+                users={users}
+                onViewUserDevices={handleViewUserDevices}
+                onDeleteUser={handleDeleteUser}
+                onUpdateUser={updateUser}
+                onSetAdminClaim={setAdminClaim}
+              />
+            )}
+            
+            {activeTab === 'devices' && (
+              <DevicesManagement
+                devices={devices}
+                onDeleteDevice={handleDeleteDevice}
+              />
+            )}
+            
+            {activeTab === 'settings' && (
+              <div className={styles.settingsPanel}>
+                <div className={styles.sectionHeader}>
+                  <div className={styles.sectionTitle}>
+                    <h2>⚙️ Cài đặt hệ thống</h2>
+                    <p>Cấu hình và quản lý hệ thống</p>
+                  </div>
+                </div>
+                
+                <div className={styles.settingsGrid}>
+                  <div className={styles.settingCard}>
+                    <div className={styles.settingIcon}>🔧</div>
+                    <div className={styles.settingInfo}>
+                      <h3>Cấu hình chung</h3>
+                      <p>Thiết lập các thông số cơ bản của hệ thống</p>
                     </div>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+                    <button className={styles.settingBtn}>Cấu hình</button>
+                  </div>
+                  
+                  <div className={styles.settingCard}>
+                    <div className={styles.settingIcon}>📧</div>
+                    <div className={styles.settingInfo}>
+                      <h3>Email & Thông báo</h3>
+                      <p>Quản lý email templates và cài đặt thông báo</p>
+                    </div>
+                    <button className={styles.settingBtn}>Cấu hình</button>
+                  </div>
+                  
+                  <div className={styles.settingCard}>
+                    <div className={styles.settingIcon}>🔐</div>
+                    <div className={styles.settingInfo}>
+                      <h3>Bảo mật</h3>
+                      <p>Cài đặt bảo mật và xác thực</p>
+                    </div>
+                    <button className={styles.settingBtn}>Cấu hình</button>
+                  </div>
+                  
+                  <div className={styles.settingCard}>
+                    <div className={styles.settingIcon}>💾</div>
+                    <div className={styles.settingInfo}>
+                      <h3>Backup & Restore</h3>
+                      <p>Sao lưu và khôi phục dữ liệu hệ thống</p>
+                    </div>
+                    <button className={styles.settingBtn}>Quản lý</button>
+                  </div>
+                  
+                  <div className={styles.settingCard}>
+                    <div className={styles.settingIcon}>📊</div>
+                    <div className={styles.settingInfo}>
+                      <h3>Logs & Analytics</h3>
+                      <p>Xem logs hệ thống và phân tích dữ liệu</p>
+                    </div>
+                    <button className={styles.settingBtn}>Xem</button>
+                  </div>
+                  
+                  <div className={styles.settingCard}>
+                    <div className={styles.settingIcon}>🎨</div>
+                    <div className={styles.settingInfo}>
+                      <h3>Giao diện</h3>
+                      <p>Tùy chỉnh giao diện và branding</p>
+                    </div>
+                    <button className={styles.settingBtn}>Tùy chỉnh</button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
       {/* User Devices Modal */}
       {selectedUser && (
-        <div className="fixed z-10 inset-0 overflow-y-auto">
-          <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-            <div className="fixed inset-0 transition-opacity" onClick={() => setSelectedUser(null)}>
-              <div className="absolute inset-0 bg-gray-500 opacity-75"></div>
+        <div className={styles.modal}>
+          <div className={styles.modalOverlay} onClick={() => setSelectedUser(null)}></div>
+          <div className={styles.modalContent}>
+            <div className={styles.modalHeader}>
+              <h3>📱 Thiết bị của {selectedUser.email}</h3>
+              <button 
+                onClick={() => setSelectedUser(null)}
+                className={styles.modalClose}
+              >
+                ✕
+              </button>
             </div>
-
-            <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
-              <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
-                <h3 className="text-lg font-medium text-gray-900 mb-4">
-                  Devices for {selectedUser.email}
-                </h3>
-                {userDevices.length === 0 ? (
-                  <p className="text-gray-500">No devices registered</p>
-                ) : (
-                  <ul className="divide-y divide-gray-200">
-                    {userDevices.map((device) => (
-                      <li key={device.deviceId} className="py-3">
-                        <p className="text-sm font-medium text-gray-900">
-                          Device ID: {device.deviceId}
-                        </p>
-                        <p className="text-xs text-gray-500">
-                          Registered: {new Date(device.registeredAt).toLocaleString()}
+            
+            <div className={styles.modalBody}>
+              {userDevices.length === 0 ? (
+                <div className={styles.emptyState}>
+                  <div className={styles.emptyIcon}>📱</div>
+                  <h3>Chưa có thiết bị</h3>
+                  <p>Người dùng này chưa đăng ký thiết bị nào</p>
+                </div>
+              ) : (
+                <div className={styles.devicesList}>
+                  {userDevices.map((device) => (
+                    <div key={device.deviceId} className={styles.deviceItem}>
+                      <div className={styles.deviceItemIcon}>📱</div>
+                      <div className={styles.deviceItemInfo}>
+                        <div className={styles.deviceItemId}>{device.deviceId}</div>
+                        <div className={styles.deviceItemMeta}>
+                          Đăng ký: {device.registeredAt 
+                            ? new Date(device.registeredAt).toLocaleDateString('vi-VN')
+                            : 'Không rõ'
+                          }
                           {device.lastActive && (
-                            <span> • Last active: {new Date(device.lastActive).toLocaleString()}</span>
+                            <span> • Hoạt động cuối: {new Date(device.lastActive).toLocaleDateString('vi-VN')}</span>
                           )}
-                        </p>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-              <div className="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
-                <button
-                  onClick={() => setSelectedUser(null)}
-                  className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm"
-                >
-                  Close
-                </button>
-              </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            
+            <div className={styles.modalFooter}>
+              <button 
+                onClick={() => setSelectedUser(null)}
+                className={styles.btnSecondary}
+              >
+                Đóng
+              </button>
             </div>
           </div>
         </div>
       )}
 
+      {/* Loading Styles */}
       <style jsx>{`
-        input[type="text"],
-        input[type="email"] {
-          padding: 0.5rem;
-          border: 1px solid #d1d5db;
-          border-radius: 0.375rem;
-          font-size: 0.875rem;
-          line-height: 1.25rem;
+        .${styles.loadingContainer} {
+          min-height: 100vh;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
         }
         
-        input[type="text"]:focus,
-        input[type="email"]:focus {
-          outline: 2px solid transparent;
-          outline-offset: 2px;
-          border-color: #3b82f6;
-          box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        .${styles.loadingSpinner} {
+          text-align: center;
+        }
+        
+        .${styles.spinner} {
+          width: 50px;
+          height: 50px;
+          border: 4px solid #e5e7eb;
+          border-top: 4px solid #3b82f6;
+          border-radius: 50%;
+          animation: spin 1s linear infinite;
+          margin: 0 auto 1rem;
+        }
+        
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+        
+        .${styles.loadingText} {
+          color: #6b7280;
+          font-size: 1.1rem;
+          font-weight: 500;
+        }
+        
+        .${styles.accessDenied} {
+          min-height: 100vh;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+          text-align: center;
+          padding: 2rem;
+        }
+        
+        .${styles.accessDeniedIcon} {
+          font-size: 4rem;
+          margin-bottom: 1rem;
+        }
+        
+        .${styles.accessDenied} h2 {
+          font-size: 2rem;
+          font-weight: 700;
+          color: #374151;
+          margin: 0 0 0.5rem 0;
+        }
+        
+        .${styles.accessDenied} p {
+          color: #6b7280;
+          font-size: 1.1rem;
+          margin: 0 0 2rem 0;
         }
       `}</style>
     </div>

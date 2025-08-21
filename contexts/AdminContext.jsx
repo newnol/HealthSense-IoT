@@ -53,11 +53,15 @@ export const AdminProvider = ({ children }) => {
       if (pageToken) params.page_token = pageToken
       if (adminOnly) params.admin_only = true
       
-      const response = await axios.get('/api/auth/user-roles', { headers, params })
+      const response = await axios.get('/api/admin/users', { headers, params })
       setUsers(response.data.users)
       return response.data
     } catch (error) {
       console.error('Error fetching users:', error)
+      if (error.response?.status === 403) {
+        console.error('Admin access required')
+        setIsAdmin(false)
+      }
       throw error
     }
   }
@@ -95,6 +99,10 @@ export const AdminProvider = ({ children }) => {
       return response.data
     } catch (error) {
       console.error('Error fetching devices:', error)
+      if (error.response?.status === 403) {
+        console.error('Admin access required')
+        setIsAdmin(false)
+      }
       throw error
     }
   }
@@ -151,11 +159,15 @@ export const AdminProvider = ({ children }) => {
   const fetchStats = async () => {
     try {
       const headers = await getAuthHeaders()
-      const response = await axios.get('/api/auth/user-stats', { headers })
+      const response = await axios.get('/api/admin/stats', { headers })
       setStats(response.data)
       return response.data
     } catch (error) {
       console.error('Error fetching stats:', error)
+      if (error.response?.status === 403) {
+        console.error('Admin access required')
+        setIsAdmin(false)
+      }
       throw error
     }
   }
@@ -168,6 +180,18 @@ export const AdminProvider = ({ children }) => {
       return response.data
     } catch (error) {
       console.error('Error fetching user by email:', error)
+      throw error
+    }
+  }
+
+  // Get user profile (from admin.py)
+  const getUserProfile = async (userId) => {
+    try {
+      const headers = await getAuthHeaders()
+      const response = await axios.get(`/api/admin/users/${userId}/profile`, { headers })
+      return response.data
+    } catch (error) {
+      console.error('Error fetching user profile:', error)
       throw error
     }
   }
@@ -187,7 +211,8 @@ export const AdminProvider = ({ children }) => {
     setAdminClaim,
     setAdminClaimByEmail,
     fetchStats,
-    getUserByEmail
+    getUserByEmail,
+    getUserProfile
   }
 
   return (

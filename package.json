@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "next start",
-    "dev": "next dev--turbopack",
+    "dev": "next dev --turbopack",
     "dev:full": "./dev.sh",
     "backend": "python start-backend.py",
     "build": "next build",
@@ -14,7 +14,7 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
   "dependencies": {
     "@genkit-ai/googleai": "^1.16.1",
     "@types/animejs": "^3.1.13",
