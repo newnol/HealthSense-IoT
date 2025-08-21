@@ -2,14 +2,21 @@ import { useMemo } from 'react'
 import AnimatedElement from '../AnimatedElement'
 import styles from '../../styles/components/dashboard.module.css'
 
-const HealthInsights = ({ records, rangeHours }) => {
+const HealthInsights = ({ records, rangeHours, dateRange }) => {
   const insights = useMemo(() => {
     if (!records || records.length === 0) return null
 
     const toMs = (ts) => (!ts ? 0 : ts < 1e12 ? ts * 1000 : ts)
     const nowMs = Date.now()
-    const cutoffMs = nowMs - rangeHours * 3600 * 1000
-    const filtered = records.filter((r) => toMs(r.ts) >= cutoffMs)
+    const cutoffMs = rangeHours != null ? nowMs - rangeHours * 3600 * 1000 : null
+    const startMs = dateRange?.start ? new Date(`${dateRange.start}T00:00:00`).getTime() : null
+    const endMs = dateRange?.end ? new Date(`${dateRange.end}T23:59:59.999`).getTime() : null
+    const filtered = records.filter((r) => {
+      const t = toMs(r.ts)
+      if (startMs != null && endMs != null) return t >= startMs && t <= endMs
+      if (cutoffMs != null) return t >= cutoffMs
+      return true
+    })
 
     if (filtered.length === 0) return null
 
@@ -36,7 +43,7 @@ const HealthInsights = ({ records, rangeHours }) => {
       dataPoints: filtered.length,
       lastUpdate: new Date(Math.max(...filtered.map(r => toMs(r.ts))))
     }
-  }, [records, rangeHours])
+  }, [records, rangeHours, dateRange])
 
   if (!insights) {
     return (
@@ -92,13 +99,11 @@ const HealthInsights = ({ records, rangeHours }) => {
       <div className={styles.insightsHeader}>
         <div className={styles.insightsTitle}>
           <h3>📋 Nhận xét sức khỏe</h3>
-          <div className={styles.aiLabel}>
-            <span className={styles.aiIcon}>🤖</span>
-            <span>AI Analysis</span>
-          </div>
         </div>
         <div className={styles.insightsMeta}>
-          Dựa trên {rangeHours} giờ gần nhất • {insights.dataPoints} điểm dữ liệu
+          {dateRange?.start && dateRange?.end
+            ? <>Dựa trên khoảng {dateRange.start} → {dateRange.end} • {insights.dataPoints} điểm dữ liệu</>
+            : <>Dựa trên {rangeHours} giờ gần nhất • {insights.dataPoints} điểm dữ liệu</>}
           <br />
           Cập nhật lúc {insights.lastUpdate.toLocaleString('vi-VN')}
         </div>

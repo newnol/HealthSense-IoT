@@ -4,7 +4,7 @@ import LoadingSpinner from '../LoadingSpinner'
 import AnimatedElement from '../AnimatedElement'
 import styles from '../../styles/components/dashboard.module.css'
 
-const ChartsSection = ({ records, rangeHours, dataLoading }) => {
+const ChartsSection = ({ records, rangeHours, dateRange, dataLoading }) => {
   if (dataLoading) {
     return (
       <AnimatedElement animation="fadeInUp" className={styles.chartLoading}>
@@ -22,7 +22,9 @@ const ChartsSection = ({ records, rangeHours, dataLoading }) => {
       <div className={styles.sectionHeader}>
         <h2 className={styles.sectionTitle}>📊 Biểu đồ theo dõi</h2>
         <div className={styles.sectionSubtitle}>
-          Dữ liệu {rangeHours} giờ gần nhất • {records?.length || 0} điểm dữ liệu
+          {dateRange?.start && dateRange?.end
+            ? <>Dữ liệu {dateRange.start} → {dateRange.end} • {records?.length || 0} điểm dữ liệu</>
+            : <>Chọn khoảng ngày để xem dữ liệu • {records?.length || 0} điểm dữ liệu</>}
         </div>
       </div>
       
@@ -40,7 +42,7 @@ const ChartsSection = ({ records, rangeHours, dataLoading }) => {
             </div>
           </div>
           <div className={styles.chartWrapper}>
-            <HeartRateChart records={records} rangeHours={rangeHours} />
+            <HeartRateChart records={records} rangeHours={rangeHours} dateRange={dateRange} />
           </div>
         </AnimatedElement>
 
@@ -57,7 +59,7 @@ const ChartsSection = ({ records, rangeHours, dataLoading }) => {
             </div>
           </div>
           <div className={styles.chartWrapper}>
-            <Spo2Chart records={records} rangeHours={rangeHours} />
+            <Spo2Chart records={records} rangeHours={rangeHours} dateRange={dateRange} />
           </div>
         </AnimatedElement>
       </div>

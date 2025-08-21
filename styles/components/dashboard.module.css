@@ -809,6 +809,42 @@
   font-size: 1.5rem;
 }
 
+/* Range Picker Popover */
+.rangeToggleBtn {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 0.6rem 1rem;
+  font-weight: 600;
+  color: #374151;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+.rangeToggleBtn:hover {
+  background: #f9fafb;
+}
+
+.rangePopover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 10000; /* ensure calendar overlays charts/cards */
+  animation: menuPop 160ms ease-out;
+}
+
+.rangePickerLayer {
+  position: relative;
+  z-index: 15000; /* raise whole picker stacking context above charts */
+}
+
+/* Elevate the entire time range section above later animated sections
+   to avoid stacking-context issues caused by transforms */
+.rangePickerSection {
+  position: relative;
+  z-index: 20000;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .header .container {

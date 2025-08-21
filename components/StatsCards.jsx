@@ -1,11 +1,18 @@
 // components/StatsCards.jsx
 import AnimatedElement from './AnimatedElement'
 
-export default function StatsCards({ records, rangeHours, loading = false }) {
+export default function StatsCards({ records, rangeHours, dateRange, loading = false }) {
   const toMs = (ts) => (!ts ? 0 : ts < 1e12 ? ts * 1000 : ts)
   const nowMs = Date.now()
-  const cutoffMs = nowMs - rangeHours * 3600 * 1000
-  const filtered = (records || []).filter((r) => toMs(r.ts) >= cutoffMs)
+  const cutoffMs = rangeHours != null ? nowMs - rangeHours * 3600 * 1000 : null
+  const startMs = dateRange?.start ? new Date(`${dateRange.start}T00:00:00`).getTime() : null
+  const endMs = dateRange?.end ? new Date(`${dateRange.end}T23:59:59.999`).getTime() : null
+  const filtered = (records || []).filter((r) => {
+    const t = toMs(r.ts)
+    if (startMs != null && endMs != null) return t >= startMs && t <= endMs
+    if (cutoffMs != null) return t >= cutoffMs
+    return true
+  })
 
   const hasData = filtered.length > 0
   const avgBpm = hasData
@@ -62,9 +69,7 @@ export default function StatsCards({ records, rangeHours, loading = false }) {
                 <div className="stat-empty">—</div>
               )}
             </div>
-            <div className="stat-label">
-              {hasData ? 'Nhịp tim trung bình' : `Chưa đủ dữ liệu trong ${rangeHours}h`}
-            </div>
+            <div className="stat-label">{hasData ? 'Nhịp tim trung bình' : (dateRange?.start && dateRange?.end ? 'Chưa đủ dữ liệu trong khoảng đã chọn' : 'Chưa đủ dữ liệu')}</div>
           </div>
         </AnimatedElement>
 
@@ -81,7 +86,7 @@ export default function StatsCards({ records, rangeHours, loading = false }) {
                 <div className="stat-empty">—</div>
               )}
             </div>
-            <div className="stat-label">{hasData ? 'SpO₂ trung bình' : `Chưa đủ dữ liệu trong ${rangeHours}h`}</div>
+            <div className="stat-label">{hasData ? 'SpO₂ trung bình' : (dateRange?.start && dateRange?.end ? 'Chưa đủ dữ liệu trong khoảng đã chọn' : 'Chưa đủ dữ liệu')}</div>
           </div>
         </AnimatedElement>
 
@@ -96,10 +101,17 @@ export default function StatsCards({ records, rangeHours, loading = false }) {
         <AnimatedElement animation="fadeInUp" delay={300} className="stat-card">
           <div className="stat-icon">⏱️</div>
           <div className="stat-content">
-            <div className="stat-value-row">
-              <div className="stat-value">{rangeHours}</div>
-              <span className="stat-unit">giờ</span>
-            </div>
+            {dateRange?.start && dateRange?.end ? (
+              <div className="stat-value-row">
+                <div className="stat-value">{dateRange.start}</div>
+                <span className="stat-unit">→</span>
+                <div className="stat-value">{dateRange.end}</div>
+              </div>
+            ) : (
+              <div className="stat-value-row">
+                <div className="stat-value">—</div>
+              </div>
+            )}
             <div className="stat-label">Khoảng thời gian đang xem</div>
           </div>
         </AnimatedElement>
