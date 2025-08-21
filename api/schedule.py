@@ -10,6 +10,7 @@ import pytz
 import logging
 import atexit
 from .auth import verify_firebase_token
+import os
 
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
