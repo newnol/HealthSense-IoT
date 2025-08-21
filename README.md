@@ -64,7 +64,7 @@ This project aims to create a comprehensive health monitoring solution that allo
 1. **Clone the repository**
    ```bash
    git clone <repository-url>
-   cd Physics-Final
+   cd HealthSense-IoT
    ```
 
 2. **Install Node.js dependencies**
@@ -217,7 +217,7 @@ The project includes `vercel.json` configuration for automatic deployment of bot
 ## 📁 Project Structure
 
 ```
-Physics-Final/
+HealthSense-IoT/
 ├── api/                    # FastAPI backend
 │   ├── main.py            # Main application and Firebase setup
 │   ├── records.py         # Data collection endpoints
