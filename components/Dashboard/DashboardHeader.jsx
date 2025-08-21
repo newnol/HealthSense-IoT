@@ -20,6 +20,13 @@ const DashboardHeader = ({ user, isAdmin, onLogout }) => {
       tooltip: "Đăng ký và quản lý thiết bị"
     },
     {
+      label: "Quản lý lịch trình",
+      path: "/schedule",
+      className: styles.btnSchedule,
+      icon: "⏰",
+      tooltip: "Lập lịch thông báo cho thiết bị"
+    },
+    {
       label: "AI Chat",
       path: "/ai",
       className: styles.btnAi,
