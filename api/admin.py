@@ -4,6 +4,10 @@ from firebase_admin import db, auth as firebase_auth
 from .auth import verify_admin
 from typing import List, Dict, Optional
 import time
+import logging
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/admin")
 
@@ -77,34 +81,118 @@ async def update_user(user_id: str, req: Request, admin = Depends(verify_admin))
 
 @router.delete("/users/{user_id}")
 async def delete_user(user_id: str, admin = Depends(verify_admin)):
-    """Delete a user account"""
+    """Delete a user account and all associated data"""
     try:
-        # Delete user from Firebase Auth
-        firebase_auth.delete_user(user_id)
+        logger.info(f"Admin {admin.get('uid')} attempting to delete user {user_id}")
         
-        # Clean up user's devices - avoid index error
+        # Check if user exists first
+        try:
+            user = firebase_auth.get_user(user_id)
+            logger.info(f"Found user {user_id} with email {user.email}")
+        except firebase_auth.UserNotFoundError:
+            logger.warning(f"User {user_id} not found for deletion")
+            raise HTTPException(404, "User not found")
+        
+        # Prevent admin from deleting themselves
+        if admin.get('uid') == user_id:
+            logger.warning(f"Admin {admin.get('uid')} attempted to delete their own account")
+            raise HTTPException(400, "Cannot delete your own account")
+        
+        # Check if target user is admin - prevent deleting other admins
+        user_claims = user.custom_claims or {}
+        if user_claims.get('admin', False):
+            logger.warning(f"Admin {admin.get('uid')} attempted to delete another admin {user_id}")
+            raise HTTPException(403, "Cannot delete other admin accounts")
+        
+        # Get user's devices and records for cleanup
+        devices_to_update = []
+        records_to_delete = []
+        
+        # Get devices - remove user from devices instead of deleting devices
         devices_ref = db.reference("/devices")
         all_devices = devices_ref.get()
-        
         if all_devices:
             for device_id, device_data in all_devices.items():
                 if device_data.get("user_id") == user_id:
-                    db.reference(f"/devices/{device_id}").delete()
+                    devices_to_update.append(device_id)
         
-        # Clean up user's records - avoid index error
+        logger.info(f"Found {len(devices_to_update)} devices to remove user from for user {user_id}")
+        
+        # Get records - still delete user's records
         records_ref = db.reference("/records")
         all_records = records_ref.get()
-        
         if all_records:
             for record_id, record_data in all_records.items():
                 if record_data.get("userId") == user_id:
-                    db.reference(f"/records/{record_id}").delete()
+                    records_to_delete.append(record_id)
+        
+        logger.info(f"Found {len(records_to_delete)} records to delete for user {user_id}")
+        
+        # Delete user from Firebase Auth first
+        firebase_auth.delete_user(user_id)
+        logger.info(f"Successfully deleted user {user_id} from Firebase Auth")
+        
+        # Remove user from devices (keep devices but clear user_id)
+        for device_id in devices_to_update:
+            try:
+                device_ref = db.reference(f"/devices/{device_id}")
+                device_data = device_ref.get()
+                if device_data:
+                    # Remove user_id but keep device registered
+                    device_data.pop("user_id", None)
+                    # Add unregistered timestamp
+                    device_data["unregistered_at"] = int(time.time() * 1000)
+                    device_data["status"] = "unregistered"
+                    device_ref.set(device_data)
+                    logger.debug(f"Removed user from device {device_id}")
+            except Exception as e:
+                logger.warning(f"Failed to remove user from device {device_id}: {e}")
+        
+        # Clean up user's records
+        for record_id in records_to_delete:
+            try:
+                db.reference(f"/records/{record_id}").delete()
+                logger.debug(f"Deleted record {record_id}")
+            except Exception as e:
+                logger.warning(f"Failed to delete record {record_id}: {e}")
         
         # Clean up user's profile
-        db.reference(f"/user_profiles/{user_id}").delete()
+        try:
+            db.reference(f"/user_profiles/{user_id}").delete()
+            logger.debug(f"Deleted user profile for {user_id}")
+        except Exception as e:
+            logger.warning(f"Failed to delete user profile: {e}")
         
-        return {"status": "ok", "message": "User and associated data deleted successfully"}
+        # Clean up any other user-related data
+        try:
+            # Clean up user sessions if they exist
+            db.reference(f"/user_sessions/{user_id}").delete()
+            logger.debug(f"Deleted user sessions for {user_id}")
+        except:
+            pass  # Sessions might not exist
+        
+        try:
+            # Clean up user preferences if they exist
+            db.reference(f"/user_preferences/{user_id}").delete()
+            logger.debug(f"Deleted user preferences for {user_id}")
+        except:
+            pass  # Preferences might not exist
+        
+        logger.info(f"Successfully completed deletion of user {user_id} and all associated data")
+        
+        return {
+            "status": "success", 
+            "message": "User deleted successfully. Devices unregistered and data cleaned up.",
+            "deletedData": {
+                "devicesUnregistered": len(devices_to_update),
+                "recordsDeleted": len(records_to_delete),
+                "userEmail": user.email
+            }
+        }
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"Error deleting user {user_id}: {e}", exc_info=True)
         raise HTTPException(500, f"Failed to delete user: {str(e)}")
 
 @router.get("/devices")

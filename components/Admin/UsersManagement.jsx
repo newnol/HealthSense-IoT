@@ -8,13 +8,16 @@ const UsersManagement = ({
   onDeleteUser, 
   onViewUserDevices, 
   onUpdateUser, 
-  onSetAdminClaim 
+  onSetAdminClaim,
+  currentUser 
 }) => {
   const [searchQuery, setSearchQuery] = useState('')
   const [filterType, setFilterType] = useState('all') // all, active, disabled, admin
   const [editingUser, setEditingUser] = useState(null)
   const [sortBy, setSortBy] = useState('email') // email, created, devices
   const [sortOrder, setSortOrder] = useState('asc')
+  const [deleteConfirm, setDeleteConfirm] = useState(null)
+  const [deletingUser, setDeletingUser] = useState(false)
 
   // Filter and sort users
   const filteredUsers = users
@@ -89,6 +92,54 @@ const UsersManagement = ({
     } catch (error) {
       alert('Lỗi cập nhật người dùng: ' + error.message)
     }
+  }
+
+  const handleDeleteUser = async (userId) => {
+    console.log('handleDeleteUser called with userId:', userId)
+    const userToDelete = users.find(u => u.uid === userId)
+    if (!userToDelete) {
+      console.log('User not found:', userId)
+      return
+    }
+    
+    console.log('Setting deleteConfirm for user:', userToDelete)
+    setDeleteConfirm(userToDelete)
+  }
+
+  const confirmDeleteUser = async () => {
+    if (!deleteConfirm) return
+    
+    setDeletingUser(true)
+    try {
+      await onDeleteUser(deleteConfirm.uid)
+      setDeleteConfirm(null)
+      // Success message will be handled by parent component
+    } catch (error) {
+      console.error('Error deleting user:', error)
+      alert('Lỗi khi xóa người dùng: ' + error.message)
+    } finally {
+      setDeletingUser(false)
+    }
+  }
+
+  const cancelDeleteUser = () => {
+    setDeleteConfirm(null)
+    setDeletingUser(false)
+  }
+
+  // Check if user can be deleted
+  const canDeleteUser = (user) => {
+    // Cannot delete current user (self)
+    if (currentUser && user.uid === currentUser.uid) {
+      return { canDelete: false, reason: "Không thể xóa tài khoản của chính mình" }
+    }
+    
+    // Cannot delete other admin users
+    if (user.admin) {
+      return { canDelete: false, reason: "Không thể xóa tài khoản admin khác" }
+    }
+    
+    return { canDelete: true, reason: null }
   }
 
   const getUserStatusBadge = (user) => {
@@ -304,10 +355,10 @@ const UsersManagement = ({
                       ✏️
                     </button>
                     <button
-                      onClick={() => onDeleteUser(user.uid)}
+                      onClick={() => handleDeleteUser(user.uid)}
                       className={`${styles.btnAction} ${styles.btnDanger}`}
-                      title="Xóa người dùng"
-                      disabled={user.uid === user?.uid} // Prevent self-deletion
+                      title={canDeleteUser(user).canDelete ? "Xóa người dùng" : canDeleteUser(user).reason}
+                      disabled={!canDeleteUser(user).canDelete}
                     >
                       🗑️
                     </button>
@@ -318,6 +369,65 @@ const UsersManagement = ({
           ))
         )}
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirm && (
+        <div className={styles.modalOverlay}>
+          <div className={styles.modalContent}>
+            <h2>Xác nhận xóa người dùng</h2>
+            <div className={styles.deleteWarning}>
+              <p>
+                Bạn có chắc chắn muốn xóa người dùng <strong>{deleteConfirm.email}</strong> không?
+              </p>
+              
+              <div className={styles.deleteDetails}>
+                <h4>⚠️ Dữ liệu sẽ bị xóa vĩnh viễn:</h4>
+                <ul>
+                  <li>👤 <strong>Tài khoản người dùng</strong> và thông tin cá nhân</li>
+                  <li>📊 <strong>Tất cả dữ liệu sức khỏe</strong> từ thiết bị</li>
+                  <li>⚙️ <strong>Hồ sơ và cài đặt</strong> của người dùng</li>
+                  <li>🔐 <strong>Phiên đăng nhập</strong> đang hoạt động</li>
+                </ul>
+                
+                <h4>📱 Thiết bị sẽ được hủy đăng ký:</h4>
+                <ul>
+                  <li>🔓 <strong>{deleteConfirm.deviceCount || 0} thiết bị</strong> sẽ được hủy đăng ký</li>
+                  <li>📱 <strong>Thiết bị vẫn tồn tại</strong> và có thể đăng ký lại</li>
+                  <li>⚡ <strong>Trạng thái:</strong> Chuyển sang "Chưa đăng ký"</li>
+                </ul>
+                
+                <div className={styles.deleteAlert}>
+                  <strong>🚨 CẢNH BÁO:</strong> Hành động này không thể hoàn tác!
+                </div>
+              </div>
+            </div>
+            
+            <div className={styles.modalActions}>
+              <button 
+                onClick={confirmDeleteUser} 
+                className={styles.btnDanger} 
+                disabled={deletingUser}
+              >
+                {deletingUser ? (
+                  <>
+                    <span className={styles.spinner}></span>
+                    Đang xóa...
+                  </>
+                ) : (
+                  '🗑️ Xóa người dùng'
+                )}
+              </button>
+              <button 
+                onClick={cancelDeleteUser} 
+                className={styles.btnCancel}
+                disabled={deletingUser}
+              >
+                ❌ Hủy
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

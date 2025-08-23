@@ -15,14 +15,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from firebase_admin import credentials, initialize_app
 
-from .records import router as records_router
-from .command import router as command_router
-from .auth import router as auth_router
-from .admin import router as admin_router
-from .login import router as login_router
-from .ai import router as ai_router
-from .profile import router as profile_router
-from .schedule import router as schedule_router
+ 
 
 
 # Load env from project root `.env.local` (best-effort) for local dev
@@ -80,6 +73,16 @@ if db_url and not missing:
 else:
     import logging
     logging.warning("Firebase service account not fully configured; skipping Firebase init.")
+
+# Import routers AFTER environment variables are loaded so modules read correct env at import time
+from .records import router as records_router
+from .command import router as command_router
+from .auth import router as auth_router
+from .admin import router as admin_router
+from .login import router as login_router
+from .ai import router as ai_router
+from .profile import router as profile_router
+from .schedule import router as schedule_router
 
 app = FastAPI()
 app.add_middleware(
