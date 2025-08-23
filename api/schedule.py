@@ -28,15 +28,17 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # MQTT Configuration
-MQTT_BROKER = os.environ.get("MQTT_BROKER")
+MQTT_BROKER = "70030b8b8dc741c79d6ab7ffa586f461.s1.eu.hivemq.cloud"
 MQTT_PORT = 8883
-MQTT_USERNAME = os.environ.get("MQTT_USERNAME")
-MQTT_BROKER = os.environ.get("MQTT_BROKER")
-MQTT_PORT = int(os.environ.get("MQTT_PORT", "8883"))
-MQTT_USERNAME = os.environ.get("MQTT_USERNAME")
-MQTT_PASSWORD = os.environ.get("MQTT_PASSWORD")
+MQTT_USERNAME = "phamngocthai"
+MQTT_PASSWORD = "Thai2005"
 # Set MOCK_MQTT from environment variable (default: False)
 MOCK_MQTT = os.getenv("MOCK_MQTT", "False").lower() in ("true", "1", "yes")
+
+# Global MQTT client for persistent connection
+mqtt_client = None
+mqtt_connected = False
+device_subscriptions = set()
 
 # APScheduler instance
 scheduler = None
@@ -44,6 +46,99 @@ scheduler_started = False
 
 if APSCHEDULER_AVAILABLE:
     scheduler = BackgroundScheduler()
+
+def mqtt_on_connect(client, userdata, flags, rc):
+    """Callback for MQTT connection"""
+    global mqtt_connected
+    if rc == 0:
+        mqtt_connected = True
+        logger.info(f"MQTT persistent client connected to {MQTT_BROKER}")
+        
+        # Resubscribe to all device topics
+        for device_id in device_subscriptions:
+            client.subscribe(device_id, qos=1)
+            logger.info(f"MQTT resubscribed to topic: {device_id}")
+    else:
+        mqtt_connected = False
+        logger.error(f"MQTT connection failed with code {rc}")
+
+def mqtt_on_disconnect(client, userdata, rc):
+    """Callback for MQTT disconnection"""
+    global mqtt_connected
+    mqtt_connected = False
+    if rc != 0:
+        logger.warning(f"MQTT disconnected unexpectedly with code {rc}")
+        # Will attempt to reconnect automatically
+
+def mqtt_on_subscribe(client, userdata, mid, granted_qos):
+    """Callback for MQTT subscription confirmation"""
+    logger.info(f"MQTT subscription confirmed, mid: {mid}, QoS: {granted_qos}")
+
+def mqtt_on_message(client, userdata, message):
+    """Callback for MQTT message reception"""
+    logger.info(f"MQTT message received on topic {message.topic}: {message.payload.decode()}")
+
+def mqtt_on_publish(client, userdata, mid):
+    """Callback for MQTT publish confirmation"""
+    logger.info(f"MQTT message published confirmed, mid: {mid}")
+
+def init_mqtt_client():
+    """Initialize the global MQTT client with persistent connection"""
+    global mqtt_client
+    if mqtt_client is None:
+        mqtt_client = mqtt.Client(protocol=mqtt.MQTTv311)
+        
+        # Configure TLS
+        context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_REQUIRED
+        mqtt_client.tls_set_context(context)
+        
+        # Set credentials
+        if MQTT_USERNAME and MQTT_PASSWORD:
+            mqtt_client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
+        
+        # Set callbacks
+        mqtt_client.on_connect = mqtt_on_connect
+        mqtt_client.on_disconnect = mqtt_on_disconnect
+        mqtt_client.on_subscribe = mqtt_on_subscribe
+        mqtt_client.on_message = mqtt_on_message
+        mqtt_client.on_publish = mqtt_on_publish
+        
+        # Set last will message
+        mqtt_client.will_set("server/status", "offline", qos=1, retain=True)
+        
+        try:
+            mqtt_client.connect_async(MQTT_BROKER, MQTT_PORT, 60)
+            mqtt_client.loop_start()
+            logger.info("MQTT persistent client initialized")
+            
+            # Publish server online status
+            mqtt_client.publish("server/status", "online", qos=1, retain=True)
+        except Exception as e:
+            logger.error(f"Failed to initialize MQTT client: {str(e)}")
+
+def subscribe_to_device(device_id):
+    """Subscribe to device topic"""
+    global mqtt_client, device_subscriptions
+    
+    if device_id in device_subscriptions:
+        return True  # Already subscribed
+    
+    if mqtt_client and mqtt_connected:
+        result, mid = mqtt_client.subscribe(device_id, qos=1)
+        if result == mqtt.MQTT_ERR_SUCCESS:
+            device_subscriptions.add(device_id)
+            logger.info(f"Subscribed to device topic: {device_id}")
+            return True
+        else:
+            logger.error(f"Failed to subscribe to device topic {device_id}: {result}")
+    else:
+        # Will subscribe when connection is established
+        device_subscriptions.add(device_id)
+        logger.info(f"Added {device_id} to subscription queue")
+    
+    return False
 
 def start_scheduler():
     """Start the APScheduler if available"""
@@ -60,15 +155,32 @@ def start_scheduler():
                 logger.info(f"Job {event.job_id} executed successfully")
         
         scheduler.add_listener(job_listener, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
+    
+    # Initialize MQTT client
+    init_mqtt_client()
 
 def stop_scheduler():
-    """Stop the scheduler"""
-    global scheduler_started
+    """Stop the scheduler and MQTT client"""
+    global scheduler_started, mqtt_client
+    
+    # Stop APScheduler
     if APSCHEDULER_AVAILABLE and scheduler and scheduler_started:
         scheduler.shutdown()
         scheduler_started = False
         logger.info("APScheduler stopped")
+    
+    # Clean up MQTT client
+    if mqtt_client:
+        try:
+            # Publish offline status before disconnecting
+            mqtt_client.publish("server/status", "offline", qos=1, retain=True)
+            mqtt_client.loop_stop()
+            mqtt_client.disconnect()
+            logger.info("MQTT client stopped")
+        except Exception as e:
+            logger.error(f"Error stopping MQTT client: {str(e)}")
 
+# Register cleanup function
 atexit.register(stop_scheduler)
 
 def create_mqtt_client():
@@ -85,16 +197,105 @@ def create_mqtt_client():
     if MQTT_USERNAME and MQTT_PASSWORD:
         client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
     
+    def on_log(client, userdata, level, buf):
+        logger.debug(f"MQTT Log: {buf}")
+        
+    def on_disconnect(client, userdata, rc):
+        if rc != 0:
+            logger.warning(f"MQTT disconnected with code {rc}")
+    
+    client.on_log = on_log
+    client.on_disconnect = on_disconnect
+    
     return client
 
 def send_mqtt_notification_sync(device_id: str, uid: str, schedule_id: str):
-    """Send MQTT notification with topic format: device_id (old version format)"""
+    """Send MQTT notification with topic format: device_id with timestamp as message"""
     
     if MOCK_MQTT:
-        logger.info(f"[MOCK MQTT] Would send to {device_id}: Health check reminder")
+        logger.info(f"[MOCK MQTT] Would send to {device_id}: {int(time.time() * 1000)}")
         update_schedule_status(schedule_id, "sent", "Mock MQTT notification sent")
         return True
     
+    try:
+        global mqtt_client, mqtt_connected
+        
+        # Get the schedule time
+        schedule_ref = db.reference(f"/schedules/{schedule_id}")
+        schedule_data = schedule_ref.get()
+        
+        # Use current timestamp if schedule data not available
+        timestamp = int(time.time() * 1000)
+        if schedule_data and "schedule_time_utc" in schedule_data:
+            timestamp = schedule_data["schedule_time_utc"]
+        
+        # Ensure we're subscribed to this device topic
+        subscribe_to_device(device_id)
+        
+        # Check if we have persistent client and connected
+        if mqtt_client is None:
+            init_mqtt_client()
+            time.sleep(1)  # Give time for initial connection attempt
+        
+        if not mqtt_connected:
+            # Fall back to temporary client if persistent client is not available
+            logger.warning("Persistent MQTT client not connected. Using temporary client.")
+            return send_mqtt_notification_temp(device_id, timestamp, schedule_id)
+        
+        # Send message using persistent client
+        topic = device_id
+        message = str(timestamp)  # Send timestamp as message
+        
+        success = False
+        publish_info = None
+        
+        def on_publish_callback(client, userdata, mid):
+            nonlocal publish_info
+            publish_info = mid
+            logger.info(f"MQTT message published to {topic}, mid: {mid}")
+        
+        # Save current callback and restore it after
+        old_on_publish = mqtt_client.on_publish
+        mqtt_client.on_publish = on_publish_callback
+        
+        try:
+            result = mqtt_client.publish(topic, message, qos=1)
+            if result.rc != mqtt.MQTT_ERR_SUCCESS:
+                logger.error(f"Failed to publish message: {result.rc}")
+                update_schedule_status(schedule_id, "failed", f"Publish failed: {result.rc}")
+                return False
+            
+            # Wait for publish confirmation
+            timeout = 10
+            elapsed = 0
+            while elapsed < timeout and publish_info is None:
+                time.sleep(0.5)
+                elapsed += 0.5
+            
+            if publish_info is not None:
+                success = True
+                logger.info(f"MQTT notification confirmed: mid={publish_info}")
+            else:
+                logger.warning(f"MQTT publish timed out after {timeout}s")
+        finally:
+            # Restore original callback
+            mqtt_client.on_publish = old_on_publish
+        
+        if success:
+            update_schedule_status(schedule_id, "sent", f"MQTT notification sent with timestamp {timestamp}")
+            return True
+        else:
+            update_schedule_status(schedule_id, "failed", "Message not confirmed")
+            return False
+            
+    except Exception as e:
+        error_msg = f"MQTT error: {str(e)}"
+        logger.error(error_msg)
+        update_schedule_status(schedule_id, "failed", error_msg)
+        return False
+
+def send_mqtt_notification_temp(device_id: str, timestamp: int, schedule_id: str):
+    """Send MQTT notification using temporary client (fallback method)"""
     try:
         client = create_mqtt_client()
         success = False
@@ -103,49 +304,50 @@ def send_mqtt_notification_sync(device_id: str, uid: str, schedule_id: str):
         def on_connect(client, userdata, flags, rc):
             nonlocal success, error_message
             if rc == 0:
-                # Use device_id only (old version format)
-                topic = device_id
-                message = "Health check reminder"
+                logger.info(f"Temp MQTT client connected successfully")
                 
-                result = client.publish(topic, message, qos=2)  # QoS 2 for guaranteed delivery
+                # Subscribe to the device topic
+                client.subscribe(device_id, qos=1)
+                
+                # Send timestamp as the message
+                topic = device_id
+                message = str(timestamp)
+                
+                result = client.publish(topic, message, qos=1)
                 if result.rc == mqtt.MQTT_ERR_SUCCESS:
                     success = True
-                    logger.info(f"MQTT published to {topic} with QoS 2")
+                    logger.info(f"Temp MQTT published to {topic}: {message}")
                 else:
-                    error_message = f"Publish failed: {result.rc}"
+                    error_message = f"Temp publish failed: {result.rc}"
             else:
-                error_message = f"Connection failed: {rc}"
-        
-        def on_publish(client, userdata, mid):
-            logger.info(f"MQTT message confirmed, mid: {mid}")
+                error_message = f"Temp connection failed: {rc}"
         
         client.on_connect = on_connect
-        client.on_publish = on_publish
         
+        logger.info(f"Connecting temp MQTT client to broker")
         client.connect(MQTT_BROKER, MQTT_PORT, 60)
         client.loop_start()
         
         # Wait for connection and publish
-        timeout = 10
+        timeout = 15
         elapsed = 0
         while elapsed < timeout and not success and not error_message:
             time.sleep(0.5)
             elapsed += 0.5
-        
+            
         client.loop_stop()
         client.disconnect()
         
         if success:
-            update_schedule_status(schedule_id, "sent", "MQTT notification sent successfully")
+            update_schedule_status(schedule_id, "sent", f"MQTT notification sent (temp client) with timestamp {timestamp}")
             return True
         else:
-            update_schedule_status(schedule_id, "failed", error_message or "Timeout")
+            update_schedule_status(schedule_id, "failed", error_message or "Timeout (temp client)")
             return False
             
     except Exception as e:
-        error_msg = f"MQTT error: {str(e)}"
+        error_msg = f"MQTT temp client error: {str(e)}"
         logger.error(error_msg)
-        update_schedule_status(schedule_id, "failed", error_msg)
         return False
 
 def update_schedule_status(schedule_id: str, status: str, message: str = ""):
@@ -274,6 +476,9 @@ async def create_schedule(request: Request):
         schedule_ref = db.reference(f"/schedules/{schedule_id}")
         schedule_ref.set(schedule_data)
         
+        # Subscribe to device topic
+        subscribe_to_device(device_id)
+        
         # Schedule the MQTT job
         if APSCHEDULER_AVAILABLE:
             start_scheduler()
@@ -396,10 +601,13 @@ async def get_scheduler_status():
             "scheduler_running": scheduler_started,
             "active_jobs": len(active_jobs),
             "jobs": active_jobs,
-            "mqtt_config": {
+            "mqtt": {
                 "broker": MQTT_BROKER,
                 "port": MQTT_PORT,
-                "mock_mode": MOCK_MQTT
+                "username": MQTT_USERNAME,
+                "connected": mqtt_connected,
+                "mock_mode": MOCK_MQTT,
+                "subscriptions": list(device_subscriptions)
             }
         }
         
@@ -435,6 +643,9 @@ async def test_mqtt_notification(device_id: str, user=Depends(verify_firebase_to
         logger.error(f"Error sending test notification: {str(e)}")
         raise HTTPException(500, f"Failed to send test: {str(e)}")
 
-# Initialize scheduler on module load
+# Initialize scheduler and MQTT client on module load
 if APSCHEDULER_AVAILABLE:
     start_scheduler()
+else:
+    # Even if scheduler is not available, initialize MQTT client
+    init_mqtt_client()
