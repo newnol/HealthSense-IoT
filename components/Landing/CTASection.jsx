@@ -5,15 +5,15 @@ const CTASection = ({ onShowAuthModal }) => {
   const features = [
     {
       icon: "✅",
-      text: "Miễn phí 30 ngày đầu"
+      text: "Miễn phí"
     },
     {
       icon: "✅", 
-      text: "Không cam kết dài hạn"
+      text: "Server nhanh hiệu quả"
     },
     {
       icon: "✅",
-      text: "Hỗ trợ 24/7"
+      text: "Hỗ trợ nhanh chóng"
     }
   ]
 

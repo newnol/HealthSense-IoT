@@ -33,7 +33,7 @@ const HeroSection = ({ onShowAuthModal }) => {
               <span className={styles.statLabel}>Giám sát</span>
             </div>
             <div className={styles.heroStat}>
-              <span className={styles.statNumber}>99.9%</span>
+              <span className={styles.statNumber}>90%</span>
               <span className={styles.statLabel}>Độ chính xác</span>
             </div>
             <div className={styles.heroStat}>
@@ -74,7 +74,7 @@ const HeroSection = ({ onShowAuthModal }) => {
                   <div className={styles.statInfo}>
                     <span className={styles.statLabel}>Nhịp tim</span>
                     <div className={styles.statMain}>
-                      <span className={styles.statValue} data-value="72">0</span>
+                      <span className={styles.statValue} data-value="72">110</span>
                       <span className={styles.statUnit}>BPM</span>
                     </div>
                     <div className={`${styles.statTrend} ${styles.up}`}>↗ +2 từ hôm qua</div>
@@ -96,7 +96,7 @@ const HeroSection = ({ onShowAuthModal }) => {
                   <div className={styles.statInfo}>
                     <span className={styles.statLabel}>SpO₂</span>
                     <div className={styles.statMain}>
-                      <span className={styles.statValue} data-value="98">0</span>
+                      <span className={styles.statValue} data-value="98">100</span>
                       <span className={styles.statUnit}>%</span>
                     </div>
                     <div className={`${styles.statTrend} ${styles.stable}`}>→ Bình thường</div>

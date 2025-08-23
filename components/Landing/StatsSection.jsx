@@ -7,24 +7,24 @@ const StatsSection = () => {
       <div className={styles.container}>
         <AnimatedElement animation="fadeInUp" trigger="onScroll" className={styles.statsGrid}>
           <div className={styles.statCard}>
-            <div className={styles.statIconLarge}>👥</div>
-            <div className={styles.statNumber} data-value="10000">0</div>
-            <div className={styles.statDescription}>Người dùng tin tưởng</div>
+            <div className={styles.statIconLarge}>📱</div>
+            <div className={styles.statNumber} data-value="1">4</div>
+            <div className={styles.statDescription}>Ứng dụng di động</div>
           </div>
           <div className={styles.statCard}>
             <div className={styles.statIconLarge}>📊</div>
-            <div className={styles.statNumber} data-value="1000000">0</div>
-            <div className={styles.statDescription}>Dữ liệu đã phân tích</div>
+            <div className={styles.statNumber} data-value="2">2</div>
+            <div className={styles.statDescription}>Chỉ số theo dõi</div>
           </div>
           <div className={styles.statCard}>
             <div className={styles.statIconLarge}>⚡</div>
-            <div className={styles.statNumber} data-value="99">0</div>
-            <div className={styles.statDescription}>% Uptime</div>
+            <div className={styles.statNumber} data-value="24">24h</div>
+            <div className={styles.statDescription}>Giờ giám sát</div>
           </div>
           <div className={styles.statCard}>
-            <div className={styles.statIconLarge}>🏥</div>
-            <div className={styles.statNumber} data-value="50">0</div>
-            <div className={styles.statDescription}>Bệnh viện đối tác</div>
+            <div className={styles.statIconLarge}>🔬</div>
+            <div className={styles.statNumber} data-value="1">10</div>
+            <div className={styles.statDescription}>Cảm biến ESP32</div>
           </div>
         </AnimatedElement>
       </div>
