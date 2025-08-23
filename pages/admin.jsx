@@ -80,16 +80,38 @@ export default function AdminDashboard() {
     const userToDelete = users.find(u => u.uid === userId)
     if (!userToDelete) return
 
-    const confirmMessage = `Bạn có chắc muốn xóa người dùng "${userToDelete.email}"?\n\nHành động này sẽ xóa:\n- Tài khoản người dùng\n- Tất cả thiết bị của họ\n- Tất cả dữ liệu liên quan\n\nKhông thể hoàn tác!`
-    
-    if (confirm(confirmMessage)) {
-      try {
-        await deleteUser(userId)
-        alert('Đã xóa người dùng thành công')
-      } catch (error) {
-        console.error('Error deleting user:', error)
-        alert('Lỗi khi xóa người dùng: ' + error.message)
+    try {
+      const result = await deleteUser(userId)
+      
+      // Show success message with details
+      const message = `Đã xóa người dùng "${userToDelete.email}" thành công!\n\nThay đổi:\n- ${result.deletedData?.devicesUnregistered || 0} thiết bị đã hủy đăng ký\n- ${result.deletedData?.recordsDeleted || 0} bản ghi dữ liệu đã xóa\n- Tài khoản người dùng đã xóa\n- Hồ sơ và cài đặt đã xóa\n\nLưu ý: Thiết bị vẫn tồn tại và có thể đăng ký lại`
+      
+      alert(message)
+      
+      // Refresh data
+      fetchUsers()
+      fetchDevices()
+      fetchStats()
+    } catch (error) {
+      console.error('Error deleting user:', error)
+      
+      let errorMessage = 'Lỗi khi xóa người dùng'
+      if (error.response?.status === 404) {
+        errorMessage = 'Người dùng không tồn tại'
+      } else if (error.response?.status === 400) {
+        errorMessage = error.response.data.detail || 'Không thể xóa tài khoản của chính mình'
+      } else if (error.response?.status === 403) {
+        const detail = error.response.data.detail || ''
+        if (detail.includes('admin')) {
+          errorMessage = 'Không thể xóa tài khoản admin khác'
+        } else {
+          errorMessage = 'Không có quyền xóa người dùng'
+        }
+      } else if (error.response?.status === 500) {
+        errorMessage = 'Lỗi server khi xóa người dùng'
       }
+      
+      alert(errorMessage)
     }
   }
 
@@ -180,6 +202,7 @@ export default function AdminDashboard() {
             {activeTab === 'users' && (
               <UsersManagement
                 users={users}
+                currentUser={user}
                 onViewUserDevices={handleViewUserDevices}
                 onDeleteUser={handleDeleteUser}
                 onUpdateUser={updateUser}

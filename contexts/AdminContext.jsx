@@ -82,8 +82,13 @@ export const AdminProvider = ({ children }) => {
   const deleteUser = async (userId) => {
     try {
       const headers = await getAuthHeaders()
-      await axios.delete(`/api/admin/users/${userId}`, { headers })
-      await fetchUsers() // Refresh users list
+      const response = await axios.delete(`/api/admin/users/${userId}`, { headers })
+      
+      // Remove user from local state
+      setUsers(prevUsers => prevUsers.filter(user => user.uid !== userId))
+      
+      // Return response data for detailed feedback
+      return response.data
     } catch (error) {
       console.error('Error deleting user:', error)
       throw error
