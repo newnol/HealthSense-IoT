@@ -9,6 +9,7 @@ Built with a **modern full-stack architecture**:
 ## 🔎 Overview
 
 This project enables:
+---
 
 * **📡 Real-time monitoring** — ESP32 streams Heart Rate & SpO₂ data securely to the cloud
 * **🤖 AI analytics** — Detect anomalies, analyze trends, and assess health risks
