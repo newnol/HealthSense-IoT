@@ -55,3 +55,5 @@ typing_extensions==4.14.1
 uritemplate==4.2.0
 urllib3==2.5.0
 uvicorn==0.24.0
+slowapi==0.1.9
+redis==5.0.1

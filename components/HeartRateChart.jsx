@@ -1,4 +1,5 @@
 // components/HeartRateChart.jsx
+import React, { memo, useMemo } from 'react'
 import { Line } from 'react-chartjs-2'
 import {
   Chart as ChartJS,
@@ -12,21 +13,24 @@ import {
   Filler
 } from 'chart.js'
 import 'chartjs-adapter-date-fns'
+import { CHART_COLORS, HEALTH_THRESHOLDS } from '../utils/constants'
 
 ChartJS.register(TimeScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler)
 
-export default function HeartRateChart({ records, rangeHours, dateRange }) {
+const HeartRateChart = memo(function HeartRateChart({ records, rangeHours, dateRange }) {
   const toMs = (ts) => (!ts ? 0 : ts < 1e12 ? ts * 1000 : ts)
   const nowMs = Date.now()
   const cutoffMs = rangeHours != null ? nowMs - rangeHours * 3600 * 1000 : null
   const startMs = dateRange?.start ? new Date(`${dateRange.start}T00:00:00`).getTime() : null
   const endMs = dateRange?.end ? new Date(`${dateRange.end}T23:59:59.999`).getTime() : null
-  const filtered = (records || []).filter((r) => {
-    const t = toMs(r.ts)
-    if (startMs != null && endMs != null) return t >= startMs && t <= endMs
-    if (cutoffMs != null) return t >= cutoffMs
-    return true
-  })
+  const filtered = useMemo(() => {
+    return (records || []).filter((r) => {
+      const t = toMs(r.ts)
+      if (startMs != null && endMs != null) return t >= startMs && t <= endMs
+      if (cutoffMs != null) return t >= cutoffMs
+      return true
+    })
+  }, [records, startMs, endMs, cutoffMs])
 
   // Tính toán các giá trị thống kê nhịp tim
   const heartRateValues = filtered
@@ -137,6 +141,8 @@ export default function HeartRateChart({ records, rangeHours, dateRange }) {
       `}</style>
     </div>
   )
-}
+})
+
+export default HeartRateChart
 
 
