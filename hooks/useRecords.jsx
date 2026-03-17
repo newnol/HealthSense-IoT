@@ -1,7 +1,9 @@
 // hooks/useRecords.jsx
-import { useEffect, useRef, useState } from 'react'
-import axios from 'axios'
+import { useEffect, useRef, useState, useCallback } from 'react'
+import api from '../lib/axiosConfig'
 import { useAuth } from '../contexts/AuthContext'
+import { apiCache, cacheKeys, withCache } from '../utils/cache'
+import { useErrorHandler } from './useErrorHandler'
 
 /**
  * Fetch user health records from backend using Firebase ID token.
@@ -12,7 +14,7 @@ export function useRecords({ limit = 1000, pollMs = 15000 } = {}) {
   const { user } = useAuth()
   const [records, setRecords] = useState([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
+  const { error, handleError, clearError } = useErrorHandler()
   const hasLoadedOnceRef = useRef(false)
   const lastHashRef = useRef('')
 
@@ -35,17 +37,28 @@ export function useRecords({ limit = 1000, pollMs = 15000 } = {}) {
       return `${newestTs}:${ids}`
     }
 
+    // Cached fetch function
+    const fetchRecords = useCallback(
+      withCache(
+        apiCache,
+        () => cacheKeys.userRecords(user.uid, { limit }),
+        async () => {
+          const resp = await api.get('/api/records/', { params: { limit } })
+          return resp.data
+        },
+        2 * 60 * 1000 // 2 minutes cache for records
+      ),
+      [user.uid, limit]
+    )
+
     const fetchOnce = async () => {
       try {
         if (!hasLoadedOnceRef.current) setLoading(true)
-        setError(null)
-        const token = await user.getIdToken()
-        const resp = await axios.get('/api/records/', {
-          headers: { Authorization: `Bearer ${token}` },
-          params: { limit },
-        })
+        clearError()
+        
+        const data = await fetchRecords()
         if (cancelled) return
-        const normalized = (Array.isArray(resp.data) ? resp.data : [])
+        const normalized = (Array.isArray(data) ? data : [])
           .map((r) => ({
             id: r.id,
             userId: r.userId,
@@ -61,32 +74,12 @@ export function useRecords({ limit = 1000, pollMs = 15000 } = {}) {
           setRecords(normalized)
         }
       } catch (err) {
-        // Retry once for minor clock skew
-        const detail = err?.response?.data?.detail || ''
-        const status = err?.response?.status || 0
-        const tooEarly = typeof detail === 'string' && detail.toLowerCase().includes('too early')
-        if (!cancelled && status === 401 && tooEarly) {
-          try {
-            await delay(3000)
-            const token2 = await user.getIdToken()
-            const resp2 = await axios.get('/api/records/', {
-              headers: { Authorization: `Bearer ${token2}` },
-              params: { limit },
-            })
-            if (cancelled) return
-            const normalized2 = (Array.isArray(resp2.data) ? resp2.data : [])
-              .map((r) => ({ id: r.id, userId: r.userId, device_id: r.device_id, spo2: r.spo2, heart_rate: r.heart_rate ?? r.hr, ts: r.ts }))
-              .sort((a, b) => toMs(b.ts) - toMs(a.ts))
-            const newHash2 = computeHash(normalized2)
-            if (newHash2 !== lastHashRef.current) {
-              lastHashRef.current = newHash2
-              setRecords(normalized2)
-            }
-          } catch (e2) {
-            if (!cancelled) setError(e2)
-          }
-        } else {
-          if (!cancelled) setError(err)
+        if (!cancelled) {
+          handleError(err, { context: 'useRecords fetchOnce' })
+          
+          // Clear cache on error to force fresh data on next request
+          const cacheKey = cacheKeys.userRecords(user.uid, { limit })
+          apiCache.delete(cacheKey)
         }
       } finally {
         if (!cancelled) {

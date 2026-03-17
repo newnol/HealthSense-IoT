@@ -83,14 +83,138 @@ from .login import router as login_router
 from .ai import router as ai_router
 from .profile import router as profile_router
 from .schedule import router as schedule_router
+from .monitoring import router as monitoring_router
 
-app = FastAPI()
+app = FastAPI(
+    title="Health Monitoring API",
+    description="""
+    ## IoT Health Monitoring System API
+    
+    Comprehensive health monitoring solution with real-time data collection and AI-driven analytics.
+    
+    ### Features
+    - 🔐 **Secure Authentication** - Firebase-based user authentication
+    - 📊 **Real-time Data** - Heart rate and SpO₂ monitoring from IoT devices
+    - 🤖 **AI Analytics** - Intelligent health insights and trend analysis
+    - 👥 **Multi-user Support** - Device sharing and user management
+    - 📱 **Cross-platform** - Works across web, mobile, and IoT devices
+    
+    ### Getting Started
+    1. Authenticate using Firebase ID token
+    2. Register your IoT devices
+    3. Start collecting health data
+    4. Get AI-powered insights
+    
+    ### Rate Limits
+    - Authentication endpoints: 10 requests/minute
+    - Admin endpoints: 5 requests/minute
+    - Data endpoints: 100 requests/minute
+    """,
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    contact={
+        "name": "Health Monitoring API Support",
+        "email": "support@healthmonitor.com",
+    },
+    license_info={
+        "name": "MIT License",
+        "url": "https://opensource.org/licenses/MIT",
+    },
+    tags_metadata=[
+        {
+            "name": "Authentication",
+            "description": "User authentication and authorization endpoints",
+        },
+        {
+            "name": "Health Records",
+            "description": "Health data collection and retrieval endpoints",
+        },
+        {
+            "name": "Device Management",
+            "description": "IoT device registration and management",
+        },
+        {
+            "name": "Commands",
+            "description": "Device command and control endpoints",
+        },
+        {
+            "name": "AI Analytics",
+            "description": "AI-powered health analysis and insights",
+        },
+        {
+            "name": "Admin",
+            "description": "Administrative functions (admin only)",
+        },
+        {
+            "name": "User Profile",
+            "description": "User profile and preferences management",
+        },
+        {
+            "name": "Scheduling",
+            "description": "Measurement scheduling and automation",
+        },
+    ]
+)
+
+# Security middleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from fastapi.middleware.gzip import GZipMiddleware
+import logging
+
+# Rate limiting setup
+limiter = Limiter(key_func=get_remote_address)
+
+# Security headers middleware
+@app.middleware("http")
+async def add_security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    return response
+
+# Trusted hosts for security
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=["localhost", "127.0.0.1", "*.vercel.app", "*.yourdomain.com"]
+)
+
+# CORS with specific origins for security
+allowed_origins = [
+    "http://localhost:3000",
+    "https://localhost:3000", 
+    "https://*.vercel.app",
+]
+
+# Add development origins if not in production
+if os.environ.get("NODE_ENV") != "production":
+    allowed_origins.extend([
+        "http://localhost:3001",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001"
+    ])
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
+    allow_origins=allowed_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["*"]
 )
+
+# Add compression middleware
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+# Add rate limiting
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Mount routers
 app.include_router(records_router)
@@ -101,5 +225,6 @@ app.include_router(login_router)
 app.include_router(ai_router)
 app.include_router(profile_router)
 app.include_router(schedule_router)
+app.include_router(monitoring_router)
 
 # Note: On Vercel Python runtime, export ASGI app as `app` (no Mangum wrapper needed)

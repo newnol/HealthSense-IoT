@@ -1,9 +1,13 @@
 # api/records.py
-from fastapi import APIRouter, Request, Depends, HTTPException, Header
+from fastapi import APIRouter, Request, Depends, HTTPException, Header, Query
 from firebase_admin import db, exceptions as fa_exceptions
 import time
 from .auth import verify_firebase_token
-from typing import Optional
+from .models import HealthRecord, HealthRecordResponse, HealthRecordsQuery, APIResponse, DeviceRegistrationRequest, DeviceRegistrationResponse
+from typing import Optional, List
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/records")
 

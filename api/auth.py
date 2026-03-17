@@ -2,8 +2,17 @@
 from fastapi import APIRouter, HTTPException, Header, Depends, Request
 from firebase_admin import auth as firebase_auth
 from typing import Dict, List, Optional
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+import logging
 
+# Rate limiting
+limiter = Limiter(key_func=get_remote_address)
 router = APIRouter(prefix="/api/auth")
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def verify_firebase_token(authorization: str = Header(None)):
     """Verify Firebase ID token from Authorization header"""
@@ -25,8 +34,13 @@ def verify_admin(user: Dict = Depends(verify_firebase_token)):
         raise HTTPException(403, "Access denied. Admin privileges required.")
     return user
 
-@router.get("/verify")
-async def verify_token(user = Depends(verify_firebase_token)):
+@router.get("/verify", 
+    summary="Verify Firebase Token",
+    description="Verify Firebase ID token and return user information",
+    response_description="User verification details",
+    tags=["Authentication"])
+@limiter.limit("10/minute")
+async def verify_token(request: Request, user = Depends(verify_firebase_token)):
     """Verify user token and return user info"""
     return {
         "uid": user.get("uid"),
@@ -160,6 +174,7 @@ async def get_user_stats(user = Depends(verify_firebase_token)):
         raise HTTPException(500, f"Failed to fetch user stats: {str(e)}")
 
 @router.post("/set-admin-claim")
+@limiter.limit("5/minute")
 async def set_admin_claim(req: Request, admin = Depends(verify_admin)):
     """Set admin claim for a user (admin only)"""
     try:
